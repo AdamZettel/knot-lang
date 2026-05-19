@@ -9,11 +9,19 @@ compiler on `$PATH`.
 
 ## Getting started in 60 seconds
 
+Clone, build, run an example:
+
 ```bash
+git clone https://github.com/AdamZettel/knot-lang.git
+cd knot-lang
 make
-./knot examples/option_pricer.knot             # run interpreted (~1s)
-./knot --exec examples/option_pricer.knot      # compile to C, run binary
+./knot examples/option_pricer.knot             # interpreted (~1s)
+./knot --exec examples/option_pricer.knot      # transpile to C, run binary
 ```
+
+Requires `g++` (or `clang++`) for C++17 and a C compiler (`cc`) on `$PATH`.
+Both are present by default on Linux and on macOS with Xcode command-line
+tools installed. No other dependencies.
 
 The option pricer demos all three execution paths: Black-Scholes closed form,
 1000-path Monte Carlo, and a Cox-Ross-Rubinstein binomial tree.  Interpreted
@@ -305,3 +313,7 @@ These are kept in the README because they were instructive:
    suppressed newlines inside.  Wrong: `{ }` is a *statement block*; the
    newlines inside it are the statement terminators we depend on.  Only
    `( )` and `[ ]` suppress newlines.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
