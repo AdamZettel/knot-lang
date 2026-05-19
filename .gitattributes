@@ -1,0 +1,10 @@
+# GitHub uses Linguist (https://github.com/github-linguist/linguist) for
+# syntax highlighting. Linguist doesn't have a knot grammar, so we tell it
+# to highlight .knot files as Python. The match is good: `#` comments,
+# `def`/`if`/`else`/`for`/`while`/`return`/`in`/`not`/`and`/`or` are all
+# keywords in both, and string/number literals line up. Braces just stay
+# unstyled, which is acceptable.
+#
+# `linguist-detectable` opts the extension into language stats on GitHub.
+*.knot         linguist-language=Python linguist-detectable=true
+*.knot.annot   linguist-language=Text

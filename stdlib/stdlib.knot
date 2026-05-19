@@ -1,0 +1,482 @@
+# Standard library for knot.
+# Loaded into the global environment at startup by the interpreter.
+#
+# Every top-level def has a docstring (the first string literal in the body)
+# which is exposed via the `whatis` and `lslib` REPL commands.
+
+# ===================================================================
+# Array utilities
+# ===================================================================
+
+def sum(v) {
+    "Sum of all elements in a vector."
+    s = 0
+    for it in v {
+        s += it
+    }
+    return s
+}
+
+def prod(v) {
+    "Product of all elements in a vector."
+    p = 1
+    for it in v {
+        p *= it
+    }
+    return p
+}
+
+def mean(v) {
+    "Arithmetic mean of vector elements: (sum of v) / len(v)."
+    return sum(v) / len(v)
+}
+
+def vmin(v) {
+    "Smallest element of v."
+    m = at(v, 0)
+    for it in v {
+        if it < m { m = it }
+    }
+    return m
+}
+
+def vmax(v) {
+    "Largest element of v."
+    m = at(v, 0)
+    for it in v {
+        if it > m { m = it }
+    }
+    return m
+}
+
+def argmin(v) {
+    "Index of the smallest element of v."
+    best = 0
+    bestval = at(v, 0)
+    for i to len(v) {
+        x = at(v, i)
+        if x < bestval {
+            bestval = x
+            best = i
+        }
+    }
+    return best
+}
+
+def argmax(v) {
+    "Index of the largest element of v."
+    best = 0
+    bestval = at(v, 0)
+    for i to len(v) {
+        x = at(v, i)
+        if x > bestval {
+            bestval = x
+            best = i
+        }
+    }
+    return best
+}
+
+def linspace(a, b, n) {
+    "Vector of n evenly spaced points from a to b, inclusive at both ends."
+    if n <= 1 { return [a] }
+    out = zeros(n)
+    step = (b - a) / (n - 1)
+    for i to n {
+        set(out, i, a + step * i)
+    }
+    return out
+}
+
+def arange(a, b, step=1) {
+    "Vector [a, a+step, a+2*step, ...] up to but not including b."
+    n = 0
+    while a + n * step < b {
+        n += 1
+    }
+    out = zeros(n)
+    for i to n {
+        set(out, i, a + i * step)
+    }
+    return out
+}
+
+def reverse(v) {
+    "Vector with elements in reverse order."
+    n = len(v)
+    out = zeros(n)
+    for i to n {
+        set(out, i, at(v, n - 1 - i))
+    }
+    return out
+}
+
+def fill(n, x) {
+    "Vector of length n with all elements equal to x."
+    out = zeros(n)
+    for i to n {
+        set(out, i, x)
+    }
+    return out
+}
+
+def copy_vec(v) {
+    "Independent copy of a vector."
+    n = len(v)
+    out = zeros(n)
+    for i to n {
+        set(out, i, at(v, i))
+    }
+    return out
+}
+
+def copy_mat(M) {
+    "Independent copy of a matrix."
+    r = rows(M)
+    c = cols(M)
+    out = zeros(r, c)
+    for i to r {
+        for j to c {
+            set(out, i, j, at(M, i, j))
+        }
+    }
+    return out
+}
+
+# ===================================================================
+# Statistics
+# ===================================================================
+
+def variance(v) {
+    "Sample variance with Bessel correction (divides by n-1)."
+    n = len(v)
+    if n < 2 { return 0 }
+    m = mean(v)
+    s = 0
+    for it in v {
+        s += (it - m) * (it - m)
+    }
+    return s / (n - 1)
+}
+
+def std(v) {
+    "Sample standard deviation: sqrt(variance(v))."
+    return sqrt(variance(v))
+}
+
+def floor_div(a, b) {
+    "Integer floor division: largest k with k*b <= a, assuming b > 0."
+    q = 0
+    while (q + 1) * b <= a {
+        q += 1
+    }
+    return q
+}
+
+def median(v) {
+    "Median of v. Sorts internally; O(n^2) due to insertion sort."
+    s = sort(v)
+    n = len(s)
+    half = floor_div(n, 2)
+    if n % 2 == 1 {
+        return at(s, half)
+    }
+    return (at(s, half - 1) + at(s, half)) / 2
+}
+
+# ===================================================================
+# Sorting
+# ===================================================================
+
+def sort(v) {
+    "Insertion-sorted copy of v. O(n^2). Fine for small n; not production-grade."
+    n = len(v)
+    out = copy_vec(v)
+    for i to n {
+        j = i
+        while j > 0 and at(out, j - 1) > at(out, j) {
+            tmp = at(out, j)
+            set(out, j, at(out, j - 1))
+            set(out, j - 1, tmp)
+            j -= 1
+        }
+    }
+    return out
+}
+
+# ===================================================================
+# Linear algebra
+# ===================================================================
+
+def trace(A) {
+    "Sum of the main diagonal of a square matrix: sum_i A[i,i]."
+    n = rows(A)
+    s = 0
+    for i to n {
+        s += at(A, i, i)
+    }
+    return s
+}
+
+def diag(v) {
+    "Diagonal matrix with v on the diagonal."
+    n = len(v)
+    M = zeros(n, n)
+    for i to n {
+        set(M, i, i, at(v, i))
+    }
+    return M
+}
+
+def lu(A, M_out, perm_out) {
+    "LU decomposition with partial pivoting. Fills M_out (a square matrix
+     same shape as A) with L packed below the diagonal (unit diagonal
+     implicit) and U on and above. Fills perm_out (a vec of length rows(A))
+     with the row permutation."
+    n = rows(A)
+    # Copy A into M_out.
+    for i to n {
+        for j to n {
+            set(M_out, i, j, at(A, i, j))
+        }
+    }
+    for i to n {
+        set(perm_out, i, i)
+    }
+    for k to n {
+        # Find pivot row in column k.
+        pivot = k
+        pivval = abs(at(M_out, k, k))
+        kk = k + 1
+        while kk < n {
+            v = abs(at(M_out, kk, k))
+            if v > pivval {
+                pivval = v
+                pivot = kk
+            }
+            kk += 1
+        }
+        # Swap rows k and pivot.
+        if pivot != k {
+            for j to n {
+                tmp = at(M_out, k, j)
+                set(M_out, k, j, at(M_out, pivot, j))
+                set(M_out, pivot, j, tmp)
+            }
+            tmp = at(perm_out, k)
+            set(perm_out, k, at(perm_out, pivot))
+            set(perm_out, pivot, tmp)
+        }
+        # Eliminate entries below the pivot.
+        ii = k + 1
+        while ii < n {
+            factor = at(M_out, ii, k) / at(M_out, k, k)
+            set(M_out, ii, k, factor)
+            jj = k + 1
+            while jj < n {
+                new_v = at(M_out, ii, jj) - factor * at(M_out, k, jj)
+                set(M_out, ii, jj, new_v)
+                jj += 1
+            }
+            ii += 1
+        }
+    }
+    return 0
+}
+
+def solve(A, b, x_out) {
+    "Solve A x = b for x, via LU with partial pivoting.
+     x_out should be a vec of length rows(A); it will be filled with the solution."
+    n = rows(A)
+    M = zeros(n, n)
+    perm = zeros(n)
+    lu(A, M, perm)
+    # Apply row permutation to b.
+    pb = zeros(n)
+    for i to n {
+        set(pb, i, at(b, at(perm, i)))
+    }
+    # Forward solve L y = pb (L has unit diagonal).
+    y = zeros(n)
+    for i to n {
+        s = at(pb, i)
+        j = 0
+        while j < i {
+            s -= at(M, i, j) * at(y, j)
+            j += 1
+        }
+        set(y, i, s)
+    }
+    # Back solve U x = y.
+    k = n
+    while k > 0 {
+        i = k - 1
+        s = at(y, i)
+        j = i + 1
+        while j < n {
+            s -= at(M, i, j) * at(x_out, j)
+            j += 1
+        }
+        set(x_out, i, s / at(M, i, i))
+        k -= 1
+    }
+    return 0
+}
+
+def power_iter(M, v_out, iters=200, tol=1e-12) {
+    "Dominant eigenvalue and eigenvector by power iteration.
+     v_out (a vec of length rows(M)) is filled with the eigenvector.
+     The eigenvalue is returned.
+     Converges for diagonalizable M with a strictly dominant eigenvalue."
+    n = rows(M)
+    # Initialize v_out to ones.
+    for i to n {
+        set(v_out, i, 1.0)
+    }
+    lam = 0
+    for _ to iters {
+        # Multiply: tmp = M @ v_out
+        tmp = M @ v_out
+        new_lam = norm(tmp)
+        # Normalize into v_out (overwriting its storage element-by-element).
+        for i to n {
+            set(v_out, i, at(tmp, i) / new_lam)
+        }
+        if abs(new_lam - lam) < tol {
+            return new_lam
+        }
+        lam = new_lam
+    }
+    return lam
+}
+
+# ===================================================================
+# Root finding
+# ===================================================================
+
+def bisect(f, a, b, tol=1e-10, max_iter=200) {
+    "Bisection root finder. f(a) and f(b) must have opposite signs."
+    fa = f(a)
+    fb = f(b)
+    if fa * fb > 0 {
+        print("bisect: f(a) and f(b) must have opposite signs")
+        return None
+    }
+    for _ to max_iter {
+        mid = (a + b) / 2
+        fm = f(mid)
+        if abs(fm) < tol or (b - a) / 2 < tol {
+            return mid
+        }
+        if fa * fm < 0 {
+            b = mid
+            fb = fm
+        }
+        else {
+            a = mid
+            fa = fm
+        }
+    }
+    return (a + b) / 2
+}
+
+def newton(f, df, x0, tol=1e-10, max_iter=100) {
+    "Newton's method. f is the function, df its derivative, x0 the start."
+    x = x0
+    for _ to max_iter {
+        fx = f(x)
+        if abs(fx) < tol { return x }
+        dfx = df(x)
+        if dfx == 0 {
+            print("newton: derivative is zero")
+            return x
+        }
+        x = x - fx / dfx
+    }
+    return x
+}
+
+# ===================================================================
+# Numerical integration
+# ===================================================================
+
+def trapezoid(f, a, b, n=100) {
+    "Composite trapezoidal rule over [a, b] with n subintervals."
+    h = (b - a) / n
+    s = (f(a) + f(b)) / 2
+    for k to n - 1 {
+        s += f(a + (k + 1) * h)
+    }
+    return s * h
+}
+
+def simpson(f, a, b, n=100) {
+    "Composite Simpson's rule (n made even if odd). 4th-order for smooth f."
+    if n % 2 != 0 {
+        n += 1
+    }
+    h = (b - a) / n
+    s = f(a) + f(b)
+    for k to n - 1 {
+        x = a + (k + 1) * h
+        if (k + 1) % 2 == 1 {
+            s += 4 * f(x)
+        }
+        else {
+            s += 2 * f(x)
+        }
+    }
+    return s * h / 3
+}
+
+# ===================================================================
+# Ordinary differential equations
+# ===================================================================
+
+def rk4(f, t0, y0, t1, n=100) {
+    "Classical 4th-order Runge-Kutta for dy/dt = f(t, y), y(t0) = y0.
+     y0 is a vec. Returns the state at t1."
+    h = (t1 - t0) / n
+    t = t0
+    y = y0
+    for _ to n {
+        k1 = f(t, y)
+        k2 = f(t + h/2, y + (h/2) * k1)
+        k3 = f(t + h/2, y + (h/2) * k2)
+        k4 = f(t + h,   y + h * k3)
+        y = y + (h/6) * (k1 + 2*k2 + 2*k3 + k4)
+        t = t + h
+    }
+    return y
+}
+
+# ===================================================================
+# Optimization
+# ===================================================================
+
+def golden_section(f, a, b, tol=1e-10, max_iter=200) {
+    "Golden-section search for the minimum of a unimodal f on [a, b]."
+    phi = (sqrt(5) - 1) / 2
+    c = b - phi * (b - a)
+    d = a + phi * (b - a)
+    fc = f(c)
+    fd = f(d)
+    for _ to max_iter {
+        if abs(b - a) < tol { return (a + b) / 2 }
+        if fc < fd {
+            b = d
+            d = c
+            fd = fc
+            c = b - phi * (b - a)
+            fc = f(c)
+        }
+        else {
+            a = c
+            c = d
+            fc = fd
+            d = a + phi * (b - a)
+            fd = f(d)
+        }
+    }
+    return (a + b) / 2
+}

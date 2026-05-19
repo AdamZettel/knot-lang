@@ -1,0 +1,25 @@
+# Bisection root-finder, written out by hand (not using the stdlib's bisect).
+# Run with `./knot --step examples/bisect_annotated.knot` to see each
+# significant block of code commented as it runs.
+
+def f(x) {
+    return x * x - 2
+}
+
+a = 1.0
+b = 2.0
+tol = 1e-6
+
+while b - a > tol {
+    mid = (a + b) / 2
+    fa = f(a)
+    fm = f(mid)
+    if fa * fm < 0 {
+        b = mid
+    }
+    else {
+        a = mid
+    }
+}
+
+print((a + b) / 2)

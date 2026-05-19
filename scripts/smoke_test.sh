@@ -1,0 +1,174 @@
+#!/bin/bash
+# Smoke test: run a few examples interpreted and via --exec, compare to
+# expected output. Exits 0 on success, nonzero on any failure.
+#
+# Run from the knot root directory:
+#   ./scripts/smoke_test.sh
+
+set -e
+cd "$(dirname "$0")/.."
+
+PASS=0
+FAIL=0
+
+check() {
+    local name="$1"
+    local expected="$2"
+    local got="$3"
+    if [ "$got" = "$expected" ]; then
+        echo "  PASS  $name"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  $name"
+        echo "        expected: $expected"
+        echo "        got:      $got"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+if [ ! -x ./knot ]; then
+    echo "no ./knot binary -- run \`make\` first"
+    exit 1
+fi
+
+echo "== interpreter =="
+
+GOT=$(./knot examples/bisect_annotated.knot 2>&1)
+check "bisect (interp)" "1.41421" "$GOT"
+
+GOT=$(./knot examples/tour.knot 2>&1 | tail -1)
+check "tour last line (interp)" "3" "$GOT"
+
+GOT=$(./knot examples/for_tour.knot 2>&1 | tail -1)
+check "for_tour last line (interp)" "2" "$GOT"
+
+echo "== transpiler =="
+
+# Clear any cached binaries so we exercise the full path.
+rm -f /tmp/knot_*.out /tmp/knot_*.srchash /tmp/knot_*.c
+
+GOT=$(./knot --exec examples/bisect_annotated.knot 2>&1)
+check "bisect (--exec)" "1.41421" "$GOT"
+
+GOT=$(./knot --exec examples/for_tour.knot 2>&1 | tail -1)
+check "for_tour last line (--exec)" "2" "$GOT"
+
+# Option pricer: just check that the Black-Scholes line is right.
+GOT=$(./knot --exec examples/option_pricer.knot 2>&1 | grep -A1 "Closed-form" | tail -1)
+check "option pricer BS call" "  call = 10.4506" "$GOT"
+
+echo "== tag detection (new for syntax) =="
+
+cat > /tmp/_swap_for.knot <<'EOF'
+A = [[1, 2, 3], [4, 5, 6]]
+for i to rows(A) {
+    for j to cols(A) {
+        print(A[j, i])
+    }
+}
+EOF
+GOT=$(./knot /tmp/_swap_for.knot 2>&1 | head -1)
+check "axis swap caught (for)" "error: index came from cols(mat) but is being used as row index (index carries col count)" "$GOT"
+rm -f /tmp/_swap_for.knot
+
+echo "== tag detection (legacy loop syntax) =="
+
+# The loop keyword is kept as a legacy form for backward compatibility.
+cat > /tmp/_swap_loop.knot <<'EOF'
+A = [[1, 2, 3], [4, 5, 6]]
+loop rows(A) as i {
+    loop cols(A) as j {
+        print(A[j, i])
+    }
+}
+EOF
+GOT=$(./knot /tmp/_swap_loop.knot 2>&1 | head -1)
+check "axis swap caught (loop)" "error: index came from cols(mat) but is being used as row index (index carries col count)" "$GOT"
+rm -f /tmp/_swap_loop.knot
+
+echo "== for-form coverage =="
+
+# Each of the four for-forms produces the right output.
+cat > /tmp/_forcov.knot <<'EOF'
+# for i to N: 0..N-1, sum = 0+1+2+3+4 = 10
+out1 = 0
+for i to 5 { out1 += i }
+print(out1)
+# for x in v: elements, sum = 60
+out2 = 0
+for x in [10, 20, 30] { out2 += x }
+print(out2)
+# for i to len(v): index, sum = 0+1+2 = 3
+out3 = 0
+v = [3, 4, 5]
+for i to len(v) { out3 += i }
+print(out3)
+# for i, x in v: both, 0*3 + 1*4 + 2*5 = 14
+out4 = 0
+for i, x in v { out4 += i * x }
+print(out4)
+EOF
+GOT=$(./knot /tmp/_forcov.knot 2>&1 | tr '\n' ',')
+check "for-form outputs (interp)" "10,60,3,14," "$GOT"
+GOT=$(./knot --exec /tmp/_forcov.knot 2>&1 | tr '\n' ',')
+check "for-form outputs (--exec)" "10,60,3,14," "$GOT"
+rm -f /tmp/_forcov.knot /tmp/knot__forcov.*
+
+echo "== extensions (C++ runtime) =="
+
+# Deterministic sort.
+cat > /tmp/_sort_test.knot <<'EOF'
+v = [3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0]
+sort_vec(v)
+print(v)
+EOF
+GOT=$(./knot /tmp/_sort_test.knot 2>&1)
+check "sort_vec (interp)" "[1, 1, 2, 3, 4, 5, 6, 9]" "$GOT"
+GOT=$(./knot --exec /tmp/_sort_test.knot 2>&1)
+check "sort_vec (--exec)" "[1, 1, 2, 3, 4, 5, 6, 9]" "$GOT"
+rm -f /tmp/_sort_test.knot /tmp/knot__sort_test.*
+
+# Seeded RNG: with same seed, both modes give the same outputs.
+cat > /tmp/_rng_test.knot <<'EOF'
+rng_seed(42)
+print(rng_uniform())
+print(rng_normal())
+EOF
+GOT_INTERP=$(./knot /tmp/_rng_test.knot 2>&1)
+GOT_EXEC=$(./knot --exec /tmp/_rng_test.knot 2>&1)
+check "RNG agrees across modes (seed=42)" "$GOT_INTERP" "$GOT_EXEC"
+rm -f /tmp/_rng_test.knot /tmp/knot__rng_test.*
+
+# CSV read.
+cat > /tmp/_csvdata.csv <<'EOF'
+1, 2, 3
+4, 5, 6
+EOF
+cat > /tmp/_csv_test.knot <<'EOF'
+M = read_csv("/tmp/_csvdata.csv")
+print(rows(M), cols(M))
+print(M[1, 2])
+EOF
+GOT=$(./knot /tmp/_csv_test.knot 2>&1 | tr '\n' '|')
+check "read_csv shape + index (interp)" "2 3|6|" "$GOT"
+GOT=$(./knot --exec /tmp/_csv_test.knot 2>&1 | tr '\n' '|')
+check "read_csv shape + index (--exec)" "2 3|6|" "$GOT"
+rm -f /tmp/_csvdata.csv /tmp/_csv_test.knot /tmp/knot__csv_test.*
+
+echo "== lists =="
+
+# append on a freshly-empty list, with mixed types.
+cat > /tmp/_append_test.knot <<'EOF'
+xs = []
+append(xs, 1)
+append(xs, "two")
+append(xs, [10, 20])
+print(len(xs), xs[0], xs[1], xs[-1])
+EOF
+GOT=$(./knot /tmp/_append_test.knot 2>&1)
+check "append (interp)" "3 1 two [10, 20]" "$GOT"
+rm -f /tmp/_append_test.knot
+
+echo
+echo "$PASS passed, $FAIL failed"
+[ "$FAIL" = "0" ]

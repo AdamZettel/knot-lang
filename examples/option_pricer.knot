@@ -1,0 +1,184 @@
+# European option pricer in knot.
+#
+# Three methods, same problem: price a European call (and the corresponding
+# put) under Black-Scholes. We use the closed-form as the reference, then
+# show that Monte Carlo and a binomial tree converge to it.
+#
+# Run interpreted for fast iteration:
+#   ./knot examples/option_pricer.knot
+#
+# Or compile to a native binary for the Monte Carlo speed:
+#   ./knot --exec examples/option_pricer.knot
+
+# ---- Math helpers ----------------------------------------------------------
+
+def norm_cdf(x) {
+    "Standard normal CDF via Abramowitz & Stegun 7.1.26.
+     Max absolute error around 7.5e-8 -- accurate enough for option pricing."
+    a1 =  0.254829592
+    a2 = -0.284496736
+    a3 =  1.421413741
+    a4 = -1.453152027
+    a5 =  1.061405429
+    p  =  0.3275911
+    sign = 1.0
+    if x < 0 { sign = -1.0 }
+    ax = abs(x) / sqrt(2.0)
+    t = 1.0 / (1.0 + p * ax)
+    y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * exp(-ax * ax)
+    return 0.5 * (1.0 + sign * y)
+}
+
+def max_of(a, b) {
+    "Numerical max of two numbers."
+    if a > b { return a }
+    return b
+}
+
+# ---- Black-Scholes closed form --------------------------------------------
+
+def bs_call(S, K, r, sigma, T) {
+    "Black-Scholes price of a European call.
+     S = spot, K = strike, r = risk-free rate, sigma = vol, T = years to expiry."
+    sqrtT = sqrt(T)
+    d1 = (log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT)
+    d2 = d1 - sigma * sqrtT
+    return S * norm_cdf(d1) - K * exp(-r * T) * norm_cdf(d2)
+}
+
+def bs_put(S, K, r, sigma, T) {
+    "Black-Scholes price of a European put.  Uses put-call parity."
+    return bs_call(S, K, r, sigma, T) - S + K * exp(-r * T)
+}
+
+# ---- Monte Carlo via LCG + Box-Muller -------------------------------------
+
+# A small linear congruential generator. Numerical Recipes' "Quick & Dirty"
+# constants -- not cryptographic, but plenty for Monte Carlo.
+# State is a number in [0, 2^31); we return the next state.
+def lcg_next(state) {
+    "One step of a linear congruential generator (Park-Miller-ish constants).
+     Uses % which is fmod on doubles in both interpreter and compiled modes."
+    a = 1103515245
+    c = 12345
+    m = 2147483648.0
+    return (a * state + c) % m
+}
+
+def lcg_uniform(state) {
+    "Return a uniform-(0,1) sample given the LCG state.
+     Doesn't advance state -- caller threads state through lcg_next."
+    return (state + 0.5) / 2147483648.0
+}
+
+def mc_call(S, K, r, sigma, T, n_paths) {
+    "Monte Carlo price of a European call.
+     Uses a deterministic LCG so runs are reproducible."
+    state = 1234567.0
+    total = 0.0
+    drift = (r - 0.5 * sigma * sigma) * T
+    diffu = sigma * sqrt(T)
+    # We draw two uniforms per step and use Box-Muller to get one normal.
+    # That wastes the second normal, but keeps the code simple.
+    for _ to n_paths {
+        state = lcg_next(state)
+        u1 = lcg_uniform(state)
+        state = lcg_next(state)
+        u2 = lcg_uniform(state)
+        if u1 < 1e-12 { u1 = 1e-12 }     # avoid log(0)
+        z = sqrt(-2.0 * log(u1)) * cos(2.0 * 3.141592653589793 * u2)
+        ST = S * exp(drift + diffu * z)
+        payoff = ST - K
+        if payoff < 0 { payoff = 0 }
+        total += payoff
+    }
+    return exp(-r * T) * total / n_paths
+}
+
+# ---- Cox-Ross-Rubinstein binomial tree ------------------------------------
+
+def crr_call(S, K, r, sigma, T, n_steps) {
+    "Cox-Ross-Rubinstein binomial-tree price of a European call.
+     n_steps is the number of time steps; price converges as it grows."
+    dt = T / n_steps
+    u = exp(sigma * sqrt(dt))         # up factor
+    d = 1.0 / u                        # down factor
+    p = (exp(r * dt) - d) / (u - d)    # risk-neutral up probability
+    disc = exp(-r * dt)
+
+    # Terminal payoffs at time T.  values[i] is the payoff after i up-moves
+    # and (n_steps - i) down-moves.
+    values = zeros(n_steps + 1)
+    for i to n_steps + 1 {
+        ST = S * exp(sigma * sqrt(dt) * (2.0 * i - n_steps))
+        # = S * u^i * d^(n_steps - i)
+        payoff = ST - K
+        if payoff < 0 { payoff = 0 }
+        set(values, i, payoff)
+    }
+
+    # Roll back through the tree.
+    step = n_steps
+    while step > 0 {
+        i = 0
+        while i < step {
+            v_up   = at(values, i + 1)
+            v_down = at(values, i)
+            set(values, i, disc * (p * v_up + (1.0 - p) * v_down))
+            i += 1
+        }
+        step -= 1
+    }
+    return at(values, 0)
+}
+
+# ---- Demo ------------------------------------------------------------------
+
+# A textbook option: spot $100, strike $100, 5% rate, 20% vol, 1 year.
+S     = 100.0
+K     = 100.0
+r     = 0.05
+sigma = 0.20
+T     = 1.0
+
+print("Black-Scholes parameters:")
+print("  S =", S, "  K =", K, "  r =", r, "  sigma =", sigma, "  T =", T)
+print("")
+
+# Closed-form reference.
+bs_c = bs_call(S, K, r, sigma, T)
+bs_p = bs_put(S, K, r, sigma, T)
+print("Closed-form Black-Scholes:")
+print("  call =", bs_c)
+print("  put  =", bs_p)
+print("")
+
+# Monte Carlo (slow interpreted, fast --exec'd).
+# 1000 paths runs quickly in the interpreter; the standard error at 1000 is
+# about $0.20, so the answer will be in the right ballpark but noisy. For a
+# precise estimate, run with --exec (which compiles to C) and bump n_mc.
+n_mc = 1000
+mc_c = mc_call(S, K, r, sigma, T, n_mc)
+print("Monte Carlo (", n_mc, "paths ):")
+print("  call =", mc_c)
+print("  error vs BS =", mc_c - bs_c)
+print("")
+
+# Binomial tree convergence.
+print("Binomial tree convergence (CRR):")
+crr_50  = crr_call(S, K, r, sigma, T,   50)
+crr_200 = crr_call(S, K, r, sigma, T,  200)
+crr_500 = crr_call(S, K, r, sigma, T,  500)
+print("  n=50:  call =", crr_50,  "  error =", crr_50  - bs_c)
+print("  n=200: call =", crr_200, "  error =", crr_200 - bs_c)
+print("  n=500: call =", crr_500, "  error =", crr_500 - bs_c)
+print("")
+
+# A small sanity check: put-call parity should hold for our closed-form.
+# C - P should equal S - K*exp(-r*T)
+lhs = bs_c - bs_p
+rhs = S - K * exp(-r * T)
+print("Put-call parity check:")
+print("  C - P =", lhs)
+print("  S - K*exp(-rT) =", rhs)
+print("  residual =", lhs - rhs)

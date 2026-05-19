@@ -1,0 +1,76 @@
+# A tour of knot's `for` construct and tagged-index detection.
+# Run with:  ./knot examples/for_tour.knot
+
+# --- 1. Numerical count: `for i to N` --------------------------------------
+# i goes 0..N-1. No `< vs <=` to get wrong; the iteration count is N.
+print("for i to 5:")
+for i to 5 {
+    print(i)
+}
+
+# Nested. Renames the index naturally.
+print("nested for, mat-style:")
+for i to 3 {
+    for j to 3 {
+        print(i * 10 + j)
+    }
+}
+
+
+# --- 2. Iterate elements of a vec: `for x in v` ----------------------------
+# x walks the elements; no index visible.
+print("for x in [10, 20, 30, 40], sum elements:")
+v = [10, 20, 30, 40]
+total = 0
+for x in v {
+    total += x
+}
+print(total)
+
+
+# --- 3. Get both index and element: `for i, x in v` ------------------------
+# The first binder is always the index (0-based).  The second is the element.
+print("for i, x in v:")
+for i, x in v {
+    print(i, "->", x)
+}
+
+
+# --- 4. Tagged indices catch axis bugs -------------------------------------
+# Every matrix knows its own axes.  `rows(A)`, `cols(A)`, and the `i` from
+# `for i to rows(A)` all carry tags. When you index, the tag is checked.
+
+print("matrix iteration with tags:")
+A = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+for i to rows(A) {
+    for j to cols(A) {
+        print(A[i, j])
+    }
+}
+
+# If you swap i and j, you get a clear error -- even on a SQUARE matrix
+# where bounds-checking alone would silently transpose:
+#
+#     for i to rows(A) {
+#         for j to cols(A) {
+#             print(A[j, i])     # <-- ERROR: cols-tagged j used as row index
+#         }
+#     }
+
+
+# --- 5. Stdlib functions ---------------------------------------------------
+# Try `lslib` in the REPL to see them all; `whatis NAME` for help.
+
+print("median:")
+print(median([5.0, 2.0, 8.0, 1.0, 9.0, 3.0]))
+
+print("solve A x = b:")
+A = [[2.0, 1.0], [1.0, 3.0]]
+b = [5.0, 10.0]
+x = zeros(rows(A))
+solve(A, b, x)
+print(x)
+
+print("integrate sin(x) on [0, pi] (expect ~2.0):")
+def s(x) { return sin(x) }
+print(simpson(s, 0.0, 3.141592653589793, 100))

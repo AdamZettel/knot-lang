@@ -1,0 +1,11 @@
+# Annotations for examples/bisect_annotated.knot
+# Run with: ./knot --step examples/bisect_annotated.knot
+# Prefix a description with * to print it every iteration (no suppression).
+
+dc84b28251a94b07	Function whose root we seek: f(x) = x^2 - 2, so the root is sqrt(2).
+8a663ffb2e42a86a+814b2903a445721c	Bracket the root in [1, 2]: f(1) < 0 and f(2) > 0.
+1db94d8a1dca1ece	Target precision: stop when the bracket shrinks below 1e-6.
+1332baaa85805068	Bisect the bracket until it's small enough.
+52fee9d26df3a54e+34cbbd99f97eded1+08e55d52cb5e96b6	Sample f at the bracket midpoint and the left endpoint.
+38a75dfaa9a38d1f	Replace the endpoint that shares a sign with f(mid).
+942064bd7414ed29	Report the midpoint as the root estimate.
