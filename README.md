@@ -4,8 +4,9 @@ A small numerical scripting language. Two execution modes from the same source:
 **interpreted** for fast iteration (3ms startup), or **transpiled to C** for
 native-binary speed (within ~10% of hand-written C, 40x faster than Python).
 
-Built in ~3000 lines of C++17. Single binary. No dependencies beyond a C
-compiler on `$PATH`.
+Built in ~3000 lines of C++17. Single binary. Builds with any C++17
+compiler; `--exec` mode additionally shells out to a C compiler (`cc`)
+on `$PATH`.
 
 ## Getting started in 60 seconds
 
