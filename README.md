@@ -171,6 +171,29 @@ checking alone misses, because the values happen to be valid.  It also fires
 when you use a tagged index from one matrix on a *different* matrix, even
 if their shapes happen to match.
 
+### "But what if I actually want the transpose?"
+
+The flagged example above is itself a half-finished transpose-print: someone
+who wanted to print `A^T` and tried to do it by swapping the letters in the
+inner expression.  That's exactly the bug the system is meant to catch.  To
+print the transpose, swap the *loop order* instead of the index roles:
+
+```python
+# print A^T: outer loop = which row of A^T (= column of A)
+for i to cols(A) {
+    for j to rows(A) {
+        print(A[j, i])   # rows-tagged j as row index, cols-tagged i as col index -- OK
+    }
+}
+```
+
+The two snippets look almost identical, which is the point: the tag check is
+what tells them apart.  If you genuinely want to allocate a transposed copy,
+`B = transpose(A)` gives you a fresh matrix with its own tags and you iterate
+it the obvious way.
+
+### Opting out
+
 The tag is permissive when *either* side is untagged.  Use the `at(c, i)` /
 `set(c, i, v)` / `at(M, i, j)` / `set(M, i, j, v)` builtins for untagged
 access -- handy in generic library code where the caller's contract is that
