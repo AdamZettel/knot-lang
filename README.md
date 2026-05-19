@@ -54,12 +54,6 @@ Try the annotated example with:
 | `./knot --scaffold FILE` | Emit a `.annot` template you fill in by hand. |
 | `./knot` | Start the REPL. Try `lslib` and `whatis solve`. |
 
-## Build & run
-
-    make
-    ./knot examples/tour.knot
-    ./knot                          # REPL
-
 ## Surface syntax
 
 ```python
@@ -70,6 +64,7 @@ greet = "hello, " + "world"
 
 # Vectors and matrices (column-major internally; written row-by-row).
 v = [1, 2, 3, 4]
+w = [5, 6, 7, 8]
 A = [[1, 2], [3, 4]]
 B = [[5, 6], [7, 8]]
 
@@ -209,7 +204,8 @@ Array utilities: `sum`, `prod`, `mean`, `vmin`, `vmax`, `argmin`, `argmax`,
 
 Statistics: `variance`, `std`, `median`, `floor_div`
 
-Sorting: `sort`
+Sorting: `sort` (insertion-sort, O(n²); for any non-trivial n use the
+`sort_vec` builtin from the runtime extensions instead)
 
 Linear algebra: `trace`, `diag`, `lu` (returns `[LU, perm]`), `solve`,
 `power_iter` (returns `[lambda, eigvec]`)
@@ -218,7 +214,8 @@ Root finding: `bisect`, `newton`
 
 Quadrature: `trapezoid`, `simpson`
 
-ODE: `rk4`
+ODE: `rk4` (interpreter only — passes a function as an argument, which the
+transpiler doesn't yet handle)
 
 Optimization: `golden_section`
 
@@ -232,6 +229,13 @@ Arrays: `zeros(n) | zeros(r,c)`, `ones(n) | ones(r,c)`, `eye(n)`,
 Untagged access: `at(c, i)`, `at(M, i, j)`, `set(c, i, v)`, `set(M, i, j, v)`
 Lists: `append(list, value)` (interpreter only — the transpiler doesn't
        handle heterogeneous lists yet)
+
+Runtime extensions (compiled C++, available in both interpreter and
+`--exec`):
+- `sort_vec(v)` — in-place quicksort, the fast path for sorting
+- `rng_seed(n)`, `rng_uniform()`, `rng_normal()` — deterministic RNG
+  (same seed gives same sequence in both execution modes)
+- `read_csv(path)` returns a mat; `write_csv(M, path)` is its inverse
 
 Operators also work as words: `and`, `or`, `not` alongside `&&`, `||`, `!`.
 
@@ -254,15 +258,29 @@ Operators also work as words: `and`, `or`, `not` alongside `&&`, `||`, `!`.
    Plain `std::vector<double>` storage; all ops throw `runtime_error` on
    shape mismatch and the interpreter wraps these with spans.
 7. `value.hpp` — `Value` is `std::variant<None, Num, Bool, Str,
-   shared_ptr<Vec>, shared_ptr<Mat>, shared_ptr<Function>, Builtin>`.
-   `Env` is a chained name→Value map; the parent pointer gives closures
-   their captured scope.
+   shared_ptr<Vec>, shared_ptr<Mat>, shared_ptr<ValueList>,
+   shared_ptr<Function>, Builtin>`.  `ValueList` is the heterogeneous
+   list (return tuples, `append`-grown collections).  `Env` is a chained
+   name→Value map; the parent pointer gives closures their captured
+   scope.
 8. `interpreter.hpp` — `exec(Stmt)` and `eval(Expr)`, one case per kind.
    `apply_binop` is factored out so compound assignment reuses it.
    `eval_index` handles negative indices and slices.  Builtins are
    registered at the bottom.
 9. `render.hpp` — rustc-style error printer (caret under the source).
 10. `main.cpp` — file driver and REPL.
+11. `hash.hpp` — FNV-style content hash over AST shape.  Drives the
+    annotation system (line 11 below) and the transpile cache (so an
+    unchanged source skips the `cc` compile step).
+12. `annotations.hpp` — `.annot` sidecar loader and lookup, keyed by
+    AST content hashes, with composite-key (consecutive-stmt) support.
+13. `codegen.hpp` — the transpiler.  AST → C strings with per-expression
+    type inference (Num/Vec/Mat/FnD_D).  Read the comment at the top
+    first for the authoritative list of what's not supported in v1.
+14. `runtime.h` — the C runtime header the generated code links against.
+    Vec/Mat helpers, formatting, error abort.
+15. `runtime_ext.cpp` — sort/RNG/CSV implementations shared between the
+    interpreter and the transpiled output.
 
 ## Annotations (pseudocode commentary on hashes)
 
@@ -322,6 +340,13 @@ with the program's stdout). See `examples/bisect_annotated.knot` and its
   `at`/`set` to opt out of checks at the function boundary.
 - Performance: tree-walking, ~50-100× slower than C for scalar code.
   Builtins are the fast path; for hot loops you'd call into linalg ops.
+- `--exec` is a strict subset of the interpreter.  The transpiler doesn't
+  yet handle heterogeneous lists, closures, default args, matrix literals,
+  slicing, string concat, or function-arg-typed parameters beyond the
+  numerical `double (*)(double)` shape.  Tagged-index checks are erased
+  at transpile time.  Programs using interpreter-only features run fine
+  with `./knot FILE` but error out under `./knot --exec FILE`.  The
+  authoritative list is the comment at the top of `src/codegen.hpp`.
 
 ## Bugs surfaced during construction
 
