@@ -56,6 +56,7 @@ Try the annotated example with:
 | `./knot --trap-nan FILE` | Run FILE, but abort at the first operation that produces NaN or Inf. Interpreter only for v1; ignored under `--exec`. |
 | `./knot --record FILE` | Run FILE and write per-statement global state to `FILE.trace`. v1 substrate for replay and call-graph views. |
 | `./knot --callgraph TRACE` | Read a recorded trace and emit Graphviz `.dot` of the dynamic call graph (edge counts + first-seen arguments). Pipe into `dot -Tpng > graph.png`. |
+| `./knot --replay TRACE` | Load a recorded trace and drop into an interactive REPL. Scrub through execution with `next`/`prev`/`goto`, inspect any variable at any step, search for values with `find`. |
 | `./knot` | Start the REPL. Try `lslib` and `whatis solve`. |
 
 ## Surface syntax
@@ -318,11 +319,53 @@ Builtins (`print`, `sqrt`, `at`, ...) are deliberately *not* nodes in
 the graph -- they're leaves and would clutter it. Only user-defined
 functions become nodes.
 
+## Numerical debugging: `--replay`
+
+The trace substrate's user-facing payoff. `--replay TRACE` loads the
+file and drops you into an interactive REPL where you can scrub through
+execution one step at a time:
+
+```
+$ ./knot --replay buggy.knot.trace
+loaded 9 steps, 6 call events. Type 'help' for commands.
+(replay) [step 0 line=2:1]> find nan
+jumped to step 6
+(replay) [step 6 line=7:1]> inspect d
+d = nan
+(replay) [step 6 line=7:1]> history a
+  step 1 line=2:1:  a = 10
+  step 3 line=4:1:  a = 5
+  step 5 line=6:1:  a = -3
+(replay) [step 6 line=7:1]> calls
+  CALL step(-3) at line=7:5
+  RET  step -> nan
+```
+
+The bug-hunting workflow that headlines this whole thread of work:
+
+1. Run with `--record`.
+2. See bad output (NaN, wrong answer, ...).
+3. `--replay` the trace.
+4. `find nan` (or `find -inf`, or `find 0` for an unexpected zero) to
+   jump to the step where the bad value first appeared.
+5. `history VAR` to see how each input got to its current value.
+6. `calls` to see what function calls happened around the bad step.
+
+Commands: `next`/`n`, `prev`/`p`, `goto N`, `list`/`l`, `inspect VAR`/
+`i VAR`, `history VAR`/`h VAR`, `calls`, `find STR`, `help`/`?`,
+`quit`/`q`.
+
+v1 limitations -- both documented at the top of `src/replay.hpp`:
+
+- Variables are looked up by literal name only; no indexing or
+  arithmetic in commands yet.
+- Function-local scopes aren't in the trace (globals only), so locals
+  inside a function call are invisible to `inspect` even when the
+  current step is inside the function body.
+
 What's still coming on top of the trace substrate:
 
-- A `--replay` mode that loads a trace and drops into a REPL with
-  `goto`/`inspect`/`history`/`next`/`prev` commands.
-- Per-scope snapshots (function locals are not yet traced in v1).
+- Per-scope snapshots (function locals captured at every step).
 
 ## Standard library
 

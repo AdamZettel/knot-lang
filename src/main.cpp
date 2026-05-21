@@ -6,6 +6,7 @@
 #include "lexer.hpp"
 #include "parser.hpp"
 #include "render.hpp"
+#include "replay.hpp"
 #include "stdlib_embedded.hpp"
 #include <algorithm>
 #include <cctype>
@@ -674,7 +675,7 @@ int main(int argc, char** argv) {
     //   knot --show FILE         -> print source with annotations inlined
     //   knot --cc FILE           -> transpile to C; print to stdout
     //   knot --exec FILE         -> transpile, compile with cc, run binary
-    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph } mode = Mode::Run;
+    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay } mode = Mode::Run;
     const char* filename = nullptr;
     bool trap_nan = false;
     std::string trace_path;
@@ -687,6 +688,7 @@ int main(int argc, char** argv) {
         else if (arg == "--cc")       mode = Mode::CC;
         else if (arg == "--exec")     mode = Mode::Exec;
         else if (arg == "--callgraph") mode = Mode::Callgraph;
+        else if (arg == "--replay")    mode = Mode::Replay;
         else if (arg == "--trap-nan") trap_nan = true;
         else if (arg == "--record") {
             // Trace path is filled in below once we know the input filename.
@@ -704,8 +706,8 @@ int main(int argc, char** argv) {
     }
     if (!filename) return repl();
 
-    // --callgraph reads a .trace file (produced by --record), not a .knot
-    // source. Handle it before opening as source.
+    // --callgraph and --replay both read a .trace file (produced by
+    // --record), not a .knot source. Handle them before opening as source.
     if (mode == Mode::Callgraph) {
         try {
             std::string text = read_file(filename);
@@ -714,6 +716,16 @@ int main(int argc, char** argv) {
             return 0;
         } catch (const std::exception& e) {
             std::cerr << "callgraph: " << e.what() << "\n";
+            return 1;
+        }
+    }
+    if (mode == Mode::Replay) {
+        try {
+            std::string text = read_file(filename);
+            ReplayTrace rt = parse_replay_trace(text);
+            return run_replay_repl(rt);
+        } catch (const std::exception& e) {
+            std::cerr << "replay: " << e.what() << "\n";
             return 1;
         }
     }
@@ -768,6 +780,7 @@ int main(int argc, char** argv) {
         case Mode::Run:
             return run_source(filename, src, false, Annotations{}, trap_nan, trace_path);
         case Mode::Callgraph: return 0; // handled above; unreachable
+        case Mode::Replay:    return 0; // handled above; unreachable
     }
     return 0;
 }

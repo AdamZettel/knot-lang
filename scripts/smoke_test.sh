@@ -189,6 +189,32 @@ EXPECTED='  "<top>" -> "add" [label="x1\n(9, 16)"];
 check "callgraph: edges rendered" "$EXPECTED" "$GOT"
 rm -f /tmp/_cg.knot /tmp/_cg.knot.trace
 
+# --replay drops into a REPL; we drive it with scripted input.
+cat > /tmp/_rep.knot <<'EOF'
+x = 3
+y = 4
+z = x * y
+EOF
+./knot --record /tmp/_rep.knot > /dev/null 2>&1
+# `history z` should report the one step where z was assigned. The
+# prompt and output share a line under piped stdin, so we grep for the
+# distinctive substring rather than anchoring at start-of-line.
+GOT=$(echo 'history z
+quit' | ./knot --replay /tmp/_rep.knot.trace 2>&1 | grep -o "step 2 line=3:1:  z = 12" | head -1)
+check "replay: history finds the assignment" "step 2 line=3:1:  z = 12" "$GOT"
+
+# `find 99` on a program that mutates a vec to contain 99 should jump
+# to the step where 99 first appears.
+cat > /tmp/_rep2.knot <<'EOF'
+v = [1, 2, 3]
+v[1] = 99
+EOF
+./knot --record /tmp/_rep2.knot > /dev/null 2>&1
+GOT=$(echo 'find 99
+quit' | ./knot --replay /tmp/_rep2.knot.trace 2>&1 | grep -o "jumped to step 1" | head -1)
+check "replay: find jumps to the matching step" "jumped to step 1" "$GOT"
+rm -f /tmp/_rep.knot /tmp/_rep.knot.trace /tmp/_rep2.knot /tmp/_rep2.knot.trace
+
 echo "== --trap-nan =="
 
 cat > /tmp/_nan_silent.knot <<'EOF'
