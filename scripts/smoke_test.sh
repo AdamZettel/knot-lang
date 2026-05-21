@@ -171,6 +171,18 @@ GOT=$(head -1 /tmp/_rec.knot.trace)
 check "record: trace header present" "# knot trace v1" "$GOT"
 rm -f /tmp/_rec.knot /tmp/_rec.knot.trace
 
+# CALL / RET events for the call-graph view.
+cat > /tmp/_cg.knot <<'EOF'
+def sq(x) { return x * x }
+def add(a, b) { return a + b }
+print(add(sq(3), sq(4)))
+EOF
+./knot --record /tmp/_cg.knot > /dev/null 2>&1
+# Expect 2 CALLs to sq, 1 to add, with matching RETs.
+GOT=$(grep -E "^(CALL|RET)" /tmp/_cg.knot.trace | tr '\n' '|')
+check "record: CALL/RET events" "CALL sq(3) at line=3:11|RET sq -> 9|CALL sq(4) at line=3:18|RET sq -> 16|CALL add(9, 16) at line=3:7|RET add -> 25|" "$GOT"
+rm -f /tmp/_cg.knot /tmp/_cg.knot.trace
+
 echo "== --trap-nan =="
 
 cat > /tmp/_nan_silent.knot <<'EOF'

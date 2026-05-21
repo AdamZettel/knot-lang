@@ -249,40 +249,53 @@ through it afterward.
 
 ```
 $ ./knot --record demo.knot
-$ head -16 demo.knot.trace
+$ cat demo.knot.trace
 # knot trace v1
-# format: STEP <n> line=<L>:<C> followed by
-#         indented '  <name> = <value>' lines.
-# globals only in v1; function-local scopes not yet traced.
+# events (one per line, in execution order):
+#   STEP <n> line=<L>:<C>           -- a statement just finished
+#     <name> = <value>              -- one indented line per global
+#   CALL <fname>(<args>) at <L>:<C> -- entered a user-defined fn
+#   RET  <fname> -> <value>         -- returned from a user-defined fn
 STEP 0 line=1:1
   S = 100
 STEP 1 line=2:1
   K = 100
   S = 100
+CALL bs_call(100, 100, 0.05, 0.2, 1) at line=3:8
+  CALL norm_cdf(0.45) at line=46:14
+  RET norm_cdf -> 0.6736
+  CALL norm_cdf(0.25) at line=46:39
+  RET norm_cdf -> 0.5987
+RET bs_call -> 10.4506
 STEP 2 line=3:1
+  bs_c = 10.4506
   K = 100
   S = 100
-  r = 0.05
 ...
 ```
 
-Each STEP block captures the global state after one statement.
-Mutations show up at the statement that performed them; loop iterations
-each get their own block; everything is sorted-name for deterministic
-diffs.
+Each STEP block captures the global state after one statement; each CALL
+records a function entry with its argument values; each RET records the
+returned value. Mutations show up at the statement that performed them;
+loop iterations each get their own STEP; everything is sorted-name for
+deterministic diffs.
 
 What you can already do with a trace file today:
 
 - `grep ^STEP demo.knot.trace | wc -l` — how many statements executed
+- `grep "^CALL " demo.knot.trace | wc -l` — how many function calls
+- `grep "^CALL norm_cdf" demo.knot.trace` — every call to one function with its args
 - `grep "residual =" demo.knot.trace` — pull a scalar's evolution
 - `diff a.trace b.trace` — bisect what changed between two runs
 
 What's coming next on top of this substrate:
 
+- A `--callgraph` mode that reads a trace and emits a Graphviz `.dot`
+  file: function nodes, edges weighted by call count, edge labels with
+  first-seen arguments. `dot -Tpng demo.dot > demo.png` and you can see
+  the runtime structure of your program.
 - A `--replay` mode that loads a trace and drops into a REPL with
   `goto`/`inspect`/`history`/`next`/`prev` commands.
-- A `--callgraph` mode that emits a Graphviz `.dot` file showing
-  which functions called which, with call counts and argument values.
 - Per-scope snapshots (function locals are not yet traced in v1).
 
 The recording overhead is non-trivial -- the formatter walks every

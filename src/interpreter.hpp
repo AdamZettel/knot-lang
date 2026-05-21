@@ -66,9 +66,12 @@ public:
         // block.
         if (trace_out) {
             *trace_out << "# knot trace v1\n";
-            *trace_out << "# format: STEP <n> line=<L>:<C> followed by\n";
-            *trace_out << "#         indented '  <name> = <value>' lines.\n";
-            *trace_out << "# globals only in v1; function-local scopes not yet traced.\n";
+            *trace_out << "# events (one per line, in execution order):\n";
+            *trace_out << "#   STEP <n> line=<L>:<C>           -- a statement just finished\n";
+            *trace_out << "#     <name> = <value>              -- one indented line per global\n";
+            *trace_out << "#   CALL <fname>(<args>) at <L>:<C> -- entered a user-defined fn\n";
+            *trace_out << "#   RET  <fname> -> <value>         -- returned from a user-defined fn\n";
+            *trace_out << "# v1 only captures globals; function-local scopes not yet traced.\n";
         }
         try {
             run_block(program, globals);
@@ -154,15 +157,35 @@ private:
         }
     }
 
+    // Emit a CALL event into the trace when a user-defined function is
+    // entered. Builtins are not logged -- they're "leaves" of the call
+    // graph and logging every print()/at()/sqrt() would drown the signal.
+    void emit_call(const std::string& name, const std::vector<Value>& args, Span site) {
+        if (!trace_out) return;
+        auto& out = *trace_out;
+        out << "CALL " << name << "(";
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (i) out << ", ";
+            out << format_value(args[i]);
+        }
+        out << ") at line=" << site.line << ":" << site.col << "\n";
+    }
+
+    // Emit a RET event when a user-defined function returns (whether via
+    // explicit `return` or by falling off the end of the body, which
+    // returns nil). RET is not emitted when the function exits via an
+    // uncaught exception -- in that case the trace will show an unmatched
+    // CALL, which is itself useful information ("crashed inside f").
+    void emit_ret(const std::string& name, const Value& value) {
+        if (!trace_out) return;
+        *trace_out << "RET " << name << " -> " << format_value(value) << "\n";
+    }
+
     // Write a snapshot of globals to the trace stream after a statement
     // has just finished executing. v1 format -- human-readable, one STEP
     // block per statement, sorted variable names for determinism. Function
     // and builtin bindings are excluded (they don't change, and printing
     // them every step would drown the signal).
-    //
-    // The trace format is designed to extend: a future CALL/RET line can
-    // be added alongside STEP without breaking readers that only know
-    // about STEP. That's the hook the call-graph view will use.
     void snapshot(const Stmt& s) {
         if (!trace_out) return;
         auto& out = *trace_out;
@@ -741,16 +764,20 @@ private:
                     frame->define(f.params[i], std::move(dv));
                 }
             }
+            if (record_mode) emit_call(f.name, args, e.span);
+            Value ret_value;
             try {
                 run_block(*f.body, frame);
+                ret_value = Value::nil(); // implicit return
             } catch (ReturnSignal& r) {
-                return std::move(r.value);
+                ret_value = std::move(r.value);
             } catch (const BreakSignal& b) {
                 throw Diag(b.span, "'break' is not inside a loop");
             } catch (const ContinueSignal& c) {
                 throw Diag(c.span, "'continue' is not inside a loop");
             }
-            return Value::nil();
+            if (record_mode) emit_ret(f.name, ret_value);
+            return ret_value;
         }
         throw Diag(e.callee->span,
             std::string("cannot call ") + callee.type_name());
