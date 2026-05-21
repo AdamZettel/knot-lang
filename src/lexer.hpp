@@ -111,6 +111,7 @@ private:
                 {"while", Tok::While}, {"loop", Tok::Loop}, {"as", Tok::As},
                 {"for", Tok::For}, {"to", Tok::To}, {"in", Tok::In},
                 {"def", Tok::Def}, {"return", Tok::Return},
+                {"break", Tok::Break}, {"continue", Tok::Continue},
                 {"True", Tok::True}, {"False", Tok::False}, {"None", Tok::None_},
                 // Python-style word operators, alongside symbol forms.
                 {"and", Tok::AndAnd}, {"or", Tok::OrOr}, {"not", Tok::Bang},

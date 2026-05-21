@@ -112,6 +112,13 @@ for x in v             { ... }   # x walks the elements of v
 for i to len(v)        { ... }   # index-only (when you need positions)
 for i, x in v          { ... }   # both index and element
 
+# `break` exits the nearest enclosing loop; `continue` jumps to its next
+# iteration. Both error out if used outside a loop, including across a
+# function-call boundary.
+for i to 1000 {
+    if found(i) { break }
+}
+
 # Functions with default arguments.  Closures work.
 def power_iter(M, iters=50, tol=1e-10) {
     "Dominant eigenvalue by power iteration."   # first string = docstring
@@ -327,7 +334,6 @@ with the program's stdout). See `examples/bisect_annotated.knot` and its
 
 ## What's deliberately missing
 
-- No `break` or `continue` yet.
 - No structs or classes.
 - No modules, exceptions, or string formatting beyond concat.
 - No dicts. Lists are heterogeneous, indexable, and appendable via

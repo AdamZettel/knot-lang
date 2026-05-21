@@ -155,6 +155,36 @@ GOT=$(./knot --exec /tmp/_csv_test.knot 2>&1 | tr '\n' '|')
 check "read_csv shape + index (--exec)" "2 3|6|" "$GOT"
 rm -f /tmp/_csvdata.csv /tmp/_csv_test.knot /tmp/knot__csv_test.*
 
+echo "== break / continue =="
+
+cat > /tmp/_bc.knot <<'EOF'
+out = 0
+for i to 100 {
+    if i == 5 { break }
+    out += i
+}
+print(out)
+# 0 + 1 + 2 + 3 + 4 = 10
+for i to 5 {
+    if i == 2 { continue }
+    print(i)
+}
+EOF
+GOT=$(./knot /tmp/_bc.knot 2>&1 | tr '\n' ',')
+check "break/continue (interp)" "10,0,1,3,4," "$GOT"
+GOT=$(./knot --exec /tmp/_bc.knot 2>/dev/null | tr '\n' ',')
+check "break/continue (--exec)" "10,0,1,3,4," "$GOT"
+rm -f /tmp/_bc.knot /tmp/knot__bc.*
+
+# Break outside a loop should error cleanly, not crash.
+cat > /tmp/_bc_err.knot <<'EOF'
+x = 1
+break
+EOF
+GOT=$(./knot /tmp/_bc_err.knot 2>&1 | head -1)
+check "break outside loop errors" "error: 'break' is not inside a loop" "$GOT"
+rm -f /tmp/_bc_err.knot
+
 echo "== lists =="
 
 # append on a freshly-empty list, with mixed types.

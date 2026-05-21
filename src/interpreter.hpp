@@ -17,11 +17,14 @@
 
 namespace knot {
 
-// We use exceptions for control flow on `return`. Cheap and clear for an
-// interpreter this small; not idiomatic for production-grade VMs.
+// We use exceptions for control flow on `return`, `break`, and `continue`.
+// Cheap and clear for an interpreter this small; not idiomatic for
+// production-grade VMs.
 struct ReturnSignal {
     Value value;
 };
+struct BreakSignal { Span span; };
+struct ContinueSignal { Span span; };
 
 class Interpreter {
 public:
@@ -35,7 +38,13 @@ public:
         // step-mode lookup, composite-key matching, and per-key suppression
         // -- lives in run_block(). The top-level program is just another
         // block.
-        run_block(program, globals);
+        try {
+            run_block(program, globals);
+        } catch (const BreakSignal& b) {
+            throw Diag(b.span, "'break' is not inside a loop");
+        } catch (const ContinueSignal& c) {
+            throw Diag(c.span, "'continue' is not inside a loop");
+        }
     }
 
     // Step-mode controls. Set before calling run().
@@ -163,7 +172,9 @@ private:
                     Value c = eval(*s.expr, env);
                     if (!truthy(c, s.expr->span)) break;
                     auto sub = std::make_shared<Env>(env);
-                    run_block(s.body, sub);
+                    try { run_block(s.body, sub); }
+                    catch (const BreakSignal&)    { return; }
+                    catch (const ContinueSignal&) { /* next iter */ }
                 }
                 return;
             }
@@ -182,14 +193,18 @@ private:
                         } else {
                             sub->define(s.name, Value::num((double)it));
                         }
-                        run_block(s.body, sub);
+                        try { run_block(s.body, sub); }
+                        catch (const BreakSignal&)    { return; }
+                        catch (const ContinueSignal&) { continue; }
                     }
                 } else if (over.is_vec()) {
                     const Vec& vv = over.as_vec();
                     for (size_t i = 0; i < vv.size(); ++i) {
                         auto sub = std::make_shared<Env>(env);
                         sub->define(s.name, Value::num(vv[i]));
-                        run_block(s.body, sub);
+                        try { run_block(s.body, sub); }
+                        catch (const BreakSignal&)    { return; }
+                        catch (const ContinueSignal&) { continue; }
                     }
                 } else {
                     throw Diag(s.expr->span,
@@ -219,7 +234,9 @@ private:
                             } else {
                                 sub->define(s.name, Value::num((double)it));
                             }
-                            run_block(s.body, sub);
+                            try { run_block(s.body, sub); }
+                            catch (const BreakSignal&)    { return; }
+                            catch (const ContinueSignal&) { continue; }
                         }
                         break;
                     }
@@ -232,7 +249,9 @@ private:
                         for (size_t i = 0; i < vv.size(); ++i) {
                             auto sub = std::make_shared<Env>(env);
                             sub->define(s.name, Value::num(vv[i]));
-                            run_block(s.body, sub);
+                            try { run_block(s.body, sub); }
+                            catch (const BreakSignal&)    { return; }
+                            catch (const ContinueSignal&) { continue; }
                         }
                         break;
                     }
@@ -246,7 +265,9 @@ private:
                             auto sub = std::make_shared<Env>(env);
                             sub->define(s.name,      Value::num((double)i));
                             sub->define(s.elem_name, Value::num(vv[i]));
-                            run_block(s.body, sub);
+                            try { run_block(s.body, sub); }
+                            catch (const BreakSignal&)    { return; }
+                            catch (const ContinueSignal&) { continue; }
                         }
                         break;
                     }
@@ -282,6 +303,8 @@ private:
                 r.value = s.expr ? eval(*s.expr, env) : Value::nil();
                 throw r;
             }
+            case StmtKind::Break:    throw BreakSignal{s.span};
+            case StmtKind::Continue: throw ContinueSignal{s.span};
         }
     }
 
@@ -649,6 +672,10 @@ private:
                 run_block(*f.body, frame);
             } catch (ReturnSignal& r) {
                 return std::move(r.value);
+            } catch (const BreakSignal& b) {
+                throw Diag(b.span, "'break' is not inside a loop");
+            } catch (const ContinueSignal& c) {
+                throw Diag(c.span, "'continue' is not inside a loop");
             }
             return Value::nil();
         }

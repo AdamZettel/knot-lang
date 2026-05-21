@@ -197,6 +197,8 @@ inline void serialize_stmt(const Stmt& s, std::ostringstream& o) {
             if (s.expr) serialize_expr(*s.expr, o);
             o << ")";
             break;
+        case StmtKind::Break:    o << "Br"; break;
+        case StmtKind::Continue: o << "Co"; break;
     }
 }
 

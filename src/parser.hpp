@@ -62,6 +62,8 @@ private:
         if (check(Tok::For))    return parse_for();
         if (check(Tok::Def))    return parse_def();
         if (check(Tok::Return)) return parse_return();
+        if (check(Tok::Break))  return parse_break();
+        if (check(Tok::Continue)) return parse_continue();
         if (check(Tok::LBrace)) return parse_block();
 
         // Expression statement, plain assignment, or compound assignment.
@@ -282,6 +284,20 @@ private:
         }
         expect_terminator("return");
         return s;
+    }
+
+    StmtPtr parse_break() {
+        Span start = cur().span;
+        ++pos; // 'break'
+        expect_terminator("break");
+        return std::make_unique<Stmt>(StmtKind::Break, start);
+    }
+
+    StmtPtr parse_continue() {
+        Span start = cur().span;
+        ++pos; // 'continue'
+        expect_terminator("continue");
+        return std::make_unique<Stmt>(StmtKind::Continue, start);
     }
 
     StmtPtr parse_block() {

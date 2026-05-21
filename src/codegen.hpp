@@ -732,6 +732,14 @@ private:
                 }
                 return;
             }
+            case StmtKind::Break:
+                indent(body, depth);
+                body << "break;\n";
+                return;
+            case StmtKind::Continue:
+                indent(body, depth);
+                body << "continue;\n";
+                return;
             case StmtKind::If: {
                 ExprResult cond = emit_expr(*s.expr, scope);
                 indent(body, depth);

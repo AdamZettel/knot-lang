@@ -70,6 +70,8 @@ enum class StmtKind {
     Block,      // { stmts... }
     FnDecl,     // def name(params) { body }
     Return,     // return expr;
+    Break,      // break;     (exits the nearest enclosing for/while/loop)
+    Continue,   // continue;  (skips to the next iteration of same)
 };
 
 // For-statement form. The parser decides which one at parse time based on
