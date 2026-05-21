@@ -155,6 +155,30 @@ GOT=$(./knot --exec /tmp/_csv_test.knot 2>&1 | tr '\n' '|')
 check "read_csv shape + index (--exec)" "2 3|6|" "$GOT"
 rm -f /tmp/_csvdata.csv /tmp/_csv_test.knot /tmp/knot__csv_test.*
 
+echo "== --trap-nan =="
+
+cat > /tmp/_nan_silent.knot <<'EOF'
+x = sqrt(-1)
+print(x + 0)
+EOF
+# Without the flag, NaN propagates silently -- baseline behavior.
+GOT=$(./knot /tmp/_nan_silent.knot 2>&1)
+check "no-trap: NaN propagates silently" "nan" "$GOT"
+
+# With --trap-nan, the error fires at the sqrt call, not at the print.
+GOT=$(./knot --trap-nan /tmp/_nan_silent.knot 2>&1 | head -1)
+check "trap-nan: sqrt(-1) caught at sqrt" "error: --trap-nan: sqrt produced NaN (run without --trap-nan to allow non-finite values)" "$GOT"
+
+# Overflow caught too (1e200 squared is +Inf).
+cat > /tmp/_inf.knot <<'EOF'
+x = 1e200
+y = x * x
+print(y)
+EOF
+GOT=$(./knot --trap-nan /tmp/_inf.knot 2>&1 | head -1)
+check "trap-nan: overflow caught" "error: --trap-nan: arithmetic produced +Inf (run without --trap-nan to allow non-finite values)" "$GOT"
+rm -f /tmp/_nan_silent.knot /tmp/_inf.knot
+
 echo "== break / continue =="
 
 cat > /tmp/_bc.knot <<'EOF'

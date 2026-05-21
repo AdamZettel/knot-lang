@@ -48,11 +48,13 @@ static bool load_stdlib(Interpreter& interp) {
 
 static int run_source(const std::string& filename, const std::string& src,
                       bool step_mode = false,
-                      Annotations annots = Annotations{}) {
+                      Annotations annots = Annotations{},
+                      bool trap_nan = false) {
     try {
         Interpreter interp;
         if (!load_stdlib(interp)) return 1;
         if (step_mode) interp.enable_step_mode(std::move(annots));
+        if (trap_nan)  interp.enable_trap_nan();
         Lexer lex(src);
         auto toks = lex.tokenize();
         Parser p(toks);
@@ -663,6 +665,7 @@ int main(int argc, char** argv) {
     //   knot --exec FILE         -> transpile, compile with cc, run binary
     enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec } mode = Mode::Run;
     const char* filename = nullptr;
+    bool trap_nan = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if      (arg == "--step")     mode = Mode::Step;
@@ -671,6 +674,7 @@ int main(int argc, char** argv) {
         else if (arg == "--show")     mode = Mode::Show;
         else if (arg == "--cc")       mode = Mode::CC;
         else if (arg == "--exec")     mode = Mode::Exec;
+        else if (arg == "--trap-nan") trap_nan = true;
         else if (!arg.empty() && arg[0] != '-' && !filename) filename = argv[i];
         else { std::cerr << "unrecognized arg: " << arg << "\n"; return 2; }
     }
@@ -690,7 +694,7 @@ int main(int argc, char** argv) {
             if (annots.empty()) {
                 std::cerr << "(no annotations found at " << filename << ".annot)\n";
             }
-            return run_source(filename, src, true, std::move(annots));
+            return run_source(filename, src, true, std::move(annots), trap_nan);
         }
         case Mode::CC: {
             // Print generated C to stdout. Stdlib gets prepended.
@@ -724,7 +728,7 @@ int main(int argc, char** argv) {
         case Mode::Exec:
             return compile_and_run(filename, src);
         case Mode::Run:
-            return run_source(filename, src);
+            return run_source(filename, src, false, Annotations{}, trap_nan);
     }
     return 0;
 }

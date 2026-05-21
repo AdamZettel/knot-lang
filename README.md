@@ -53,6 +53,7 @@ Try the annotated example with:
 | `./knot --show FILE` | Print source with sidecar `.annot` annotations interleaved as comments. |
 | `./knot --step FILE` | Run interpreted with annotations printed as commentary. |
 | `./knot --scaffold FILE` | Emit a `.annot` template you fill in by hand. |
+| `./knot --trap-nan FILE` | Run FILE, but abort at the first operation that produces NaN or Inf. Interpreter only for v1; ignored under `--exec`. |
 | `./knot` | Start the REPL. Try `lslib` and `whatis solve`. |
 
 ## Surface syntax
@@ -201,6 +202,43 @@ The tag is permissive when *either* side is untagged.  Use the `at(c, i)` /
 `set(c, i, v)` / `at(M, i, j)` / `set(M, i, j, v)` builtins for untagged
 access -- handy in generic library code where the caller's contract is that
 lengths match (e.g. `solve(A, b)` reading `b[perm[i]]`).
+
+## Numerical debugging: `--trap-nan`
+
+The single biggest pain in debugging a numerical program is that a NaN or
+Inf born in line 12 doesn't get noticed until line 200, by which point it
+has poisoned ten variables and you have no idea where it came from.
+
+Run with `--trap-nan` and any arithmetic op or math builtin that produces
+a non-finite result aborts immediately, with a caret pointing at the
+operation that produced it:
+
+```python
+def f(x) {
+    return sqrt(x - 2)
+}
+y = f(1.5)             # sqrt of -0.5
+print("y =", y)
+```
+
+```
+$ ./knot --trap-nan demo.knot
+error: --trap-nan: sqrt produced NaN
+ --> demo.knot:2:12
+  |
+2 |     return sqrt(x - 2)
+  |            ^^^^^^^^^^^
+```
+
+Without the flag, the program would have printed `y = nan` and you'd be
+left guessing.  The trap covers `+`, `-`, `*`, `/`, `%`, and the math
+builtins (`sqrt`, `log`, `exp`).  Division by zero is caught
+unconditionally; the rest only fire under `--trap-nan` so production runs
+stay zero-overhead.
+
+Interpreter only for v1.  `--exec` mode silently ignores the flag for
+now -- enabling hardware FPE trapping in the transpiled output is a
+separate piece of work.
 
 ## Standard library
 

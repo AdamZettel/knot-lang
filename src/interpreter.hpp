@@ -28,12 +28,27 @@ struct ReturnSignal {
 struct BreakSignal { Span span; };
 struct ContinueSignal { Span span; };
 
+// Helper for NaN-trapping (Interpreter::trap_nan). Called from the
+// scalar-arith hook in apply_binop and from each math builtin that can
+// produce non-finite values. `what` is a short label for the message.
+class Interpreter;
+inline void trap_check_finite(double v, Span s, const char* what);
+
 class Interpreter {
 public:
+    // NaN-trapping mode (--trap-nan). When enabled, any arithmetic op or
+    // math builtin that produces NaN or Inf throws a Diag with the span
+    // of the producing operation, rather than letting the bad value
+    // silently propagate through the rest of the program. Static so the
+    // standalone builtin functions can check it without a signature change.
+    static bool trap_nan;
+
     Interpreter() {
         globals = std::make_shared<Env>();
         register_builtins();
     }
+
+    void enable_trap_nan() { trap_nan = true; }
 
     void run(const std::vector<StmtPtr>& program) {
         // The single source of truth for stmt-block execution -- including
@@ -472,6 +487,7 @@ private:
         // number, propagate the tag if there's no conflict.  Same tag wins;
         // tag + untagged keeps the tag; conflicting tags drop both.
         auto propagate_tag = [&](double result) -> Value {
+            trap_check_finite(result, s, "arithmetic");
             Value v = Value::num(result);
             std::shared_ptr<ShapeTag> lt = l.is_num() ? l.tag : nullptr;
             std::shared_ptr<ShapeTag> rt = r.is_num() ? r.tag : nullptr;
@@ -1089,7 +1105,9 @@ inline Value b_transpose(const std::vector<Value>& args, Span s) {
 
 inline Value b_sqrt(const std::vector<Value>& args, Span s) {
     if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "sqrt(num)");
-    return Value::num(std::sqrt(args[0].as_num()));
+    double r = std::sqrt(args[0].as_num());
+    trap_check_finite(r, s, "sqrt");
+    return Value::num(r);
 }
 
 inline Value b_abs(const std::vector<Value>& args, Span s) {
@@ -1109,12 +1127,16 @@ inline Value b_cos(const std::vector<Value>& args, Span s) {
 
 inline Value b_exp(const std::vector<Value>& args, Span s) {
     if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "exp(num)");
-    return Value::num(std::exp(args[0].as_num()));
+    double r = std::exp(args[0].as_num());
+    trap_check_finite(r, s, "exp");
+    return Value::num(r);
 }
 
 inline Value b_log(const std::vector<Value>& args, Span s) {
     if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "log(num)");
-    return Value::num(std::log(args[0].as_num()));
+    double r = std::log(args[0].as_num());
+    trap_check_finite(r, s, "log");
+    return Value::num(r);
 }
 
 // ---- Extensions backed by C++ stdlib -----------------------------------
@@ -1215,6 +1237,20 @@ inline Value b_write_csv(const std::vector<Value>& args, Span s) {
 }
 
 } // namespace builtins
+
+// Out-of-line definitions. The Interpreter::trap_nan flag is a single
+// process-wide switch flipped by enable_trap_nan(); checking it from the
+// standalone builtin functions just needs the class name, no instance.
+inline bool Interpreter::trap_nan = false;
+
+inline void trap_check_finite(double v, Span s, const char* what) {
+    if (Interpreter::trap_nan && !std::isfinite(v)) {
+        std::string msg = std::string("--trap-nan: ") + what + " produced "
+            + (std::isnan(v) ? "NaN" : (v > 0 ? "+Inf" : "-Inf"))
+            + " (run without --trap-nan to allow non-finite values)";
+        throw Diag(s, msg);
+    }
+}
 
 inline void Interpreter::register_builtins() {
     auto reg = [&](const std::string& name, BuiltinFn fn) {
