@@ -1,4 +1,5 @@
 #include "annotations.hpp"
+#include "callgraph.hpp"
 #include "codegen.hpp"
 #include "hash.hpp"
 #include "interpreter.hpp"
@@ -673,7 +674,7 @@ int main(int argc, char** argv) {
     //   knot --show FILE         -> print source with annotations inlined
     //   knot --cc FILE           -> transpile to C; print to stdout
     //   knot --exec FILE         -> transpile, compile with cc, run binary
-    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec } mode = Mode::Run;
+    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph } mode = Mode::Run;
     const char* filename = nullptr;
     bool trap_nan = false;
     std::string trace_path;
@@ -685,6 +686,7 @@ int main(int argc, char** argv) {
         else if (arg == "--show")     mode = Mode::Show;
         else if (arg == "--cc")       mode = Mode::CC;
         else if (arg == "--exec")     mode = Mode::Exec;
+        else if (arg == "--callgraph") mode = Mode::Callgraph;
         else if (arg == "--trap-nan") trap_nan = true;
         else if (arg == "--record") {
             // Trace path is filled in below once we know the input filename.
@@ -701,6 +703,20 @@ int main(int argc, char** argv) {
         trace_path = std::string(filename) + ".trace";
     }
     if (!filename) return repl();
+
+    // --callgraph reads a .trace file (produced by --record), not a .knot
+    // source. Handle it before opening as source.
+    if (mode == Mode::Callgraph) {
+        try {
+            std::string text = read_file(filename);
+            CallGraph g = parse_trace(text);
+            std::cout << render_dot(g);
+            return 0;
+        } catch (const std::exception& e) {
+            std::cerr << "callgraph: " << e.what() << "\n";
+            return 1;
+        }
+    }
 
     std::ifstream f(filename);
     if (!f) { std::cerr << "cannot open " << filename << "\n"; return 1; }
@@ -751,6 +767,7 @@ int main(int argc, char** argv) {
             return compile_and_run(filename, src);
         case Mode::Run:
             return run_source(filename, src, false, Annotations{}, trap_nan, trace_path);
+        case Mode::Callgraph: return 0; // handled above; unreachable
     }
     return 0;
 }

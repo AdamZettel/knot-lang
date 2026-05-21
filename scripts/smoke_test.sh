@@ -181,6 +181,12 @@ EOF
 # Expect 2 CALLs to sq, 1 to add, with matching RETs.
 GOT=$(grep -E "^(CALL|RET)" /tmp/_cg.knot.trace | tr '\n' '|')
 check "record: CALL/RET events" "CALL sq(3) at line=3:11|RET sq -> 9|CALL sq(4) at line=3:18|RET sq -> 16|CALL add(9, 16) at line=3:7|RET add -> 25|" "$GOT"
+
+# --callgraph reads the trace and emits parseable Graphviz.
+GOT=$(./knot --callgraph /tmp/_cg.knot.trace | grep -E "^  \".*\" -> \".*\"")
+EXPECTED='  "<top>" -> "add" [label="x1\n(9, 16)"];
+  "<top>" -> "sq" [label="x2\n(3)"];'
+check "callgraph: edges rendered" "$EXPECTED" "$GOT"
 rm -f /tmp/_cg.knot /tmp/_cg.knot.trace
 
 echo "== --trap-nan =="

@@ -55,6 +55,7 @@ Try the annotated example with:
 | `./knot --scaffold FILE` | Emit a `.annot` template you fill in by hand. |
 | `./knot --trap-nan FILE` | Run FILE, but abort at the first operation that produces NaN or Inf. Interpreter only for v1; ignored under `--exec`. |
 | `./knot --record FILE` | Run FILE and write per-statement global state to `FILE.trace`. v1 substrate for replay and call-graph views. |
+| `./knot --callgraph TRACE` | Read a recorded trace and emit Graphviz `.dot` of the dynamic call graph (edge counts + first-seen arguments). Pipe into `dot -Tpng > graph.png`. |
 | `./knot` | Start the REPL. Try `lslib` and `whatis solve`. |
 
 ## Surface syntax
@@ -288,19 +289,40 @@ What you can already do with a trace file today:
 - `grep "residual =" demo.knot.trace` — pull a scalar's evolution
 - `diff a.trace b.trace` — bisect what changed between two runs
 
-What's coming next on top of this substrate:
-
-- A `--callgraph` mode that reads a trace and emits a Graphviz `.dot`
-  file: function nodes, edges weighted by call count, edge labels with
-  first-seen arguments. `dot -Tpng demo.dot > demo.png` and you can see
-  the runtime structure of your program.
-- A `--replay` mode that loads a trace and drops into a REPL with
-  `goto`/`inspect`/`history`/`next`/`prev` commands.
-- Per-scope snapshots (function locals are not yet traced in v1).
-
 The recording overhead is non-trivial -- the formatter walks every
 global at every statement -- so this is a debugging tool, not a flag
 to leave on in production runs.
+
+## Numerical debugging: `--callgraph`
+
+A trace file is also enough to reconstruct the dynamic call graph of
+the run -- which function called which, how many times, with what
+arguments. `--callgraph` reads a `.trace` and emits Graphviz `.dot`:
+
+```bash
+$ ./knot --record hypot_demo.knot              # writes hypot_demo.knot.trace
+$ ./knot --callgraph hypot_demo.knot.trace | dot -Tpng > hypot.png
+```
+
+Nodes are functions, edges are caller→callee labelled with the call
+count and the first-seen argument tuple. For `print(hypot(3, 4))` and
+`print(hypot(5, 12))` against a hypot built from `sq` + `add` + `sqrt`,
+the result is:
+
+```
+<top> --x2 (3, 4)--> hypot --x4 (3)----> sq
+                           --x2 (9, 16)-> add
+```
+
+Builtins (`print`, `sqrt`, `at`, ...) are deliberately *not* nodes in
+the graph -- they're leaves and would clutter it. Only user-defined
+functions become nodes.
+
+What's still coming on top of the trace substrate:
+
+- A `--replay` mode that loads a trace and drops into a REPL with
+  `goto`/`inspect`/`history`/`next`/`prev` commands.
+- Per-scope snapshots (function locals are not yet traced in v1).
 
 ## Standard library
 
