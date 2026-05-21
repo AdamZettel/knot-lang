@@ -19,6 +19,12 @@
 // matrix literals, slicing, string concat, tagged-index checks (they're
 // erased), the @ matmul operator on matrices (we emit knot_mat_mul but only
 // for known-mat operands).
+//
+// Numerical higher-order functions ARE supported for arities 1-3
+// (FnD_D / FnDD_D / FnDDD_D), which covers rk4 / bisect / newton /
+// simpson / trapezoid / golden_section. Beyond 3 args, add a new
+// CType entry and update emit_call / c_decl / scan_expr_for_type
+// in tandem.
 
 #include "ast.hpp"
 #include "diag.hpp"
@@ -38,7 +44,9 @@ enum class CType {
     Mat,        // knot_mat
     Str,        // const char* (literals only; no concat in v1)
     Nil,        // void return / placeholder
-    FnD_D,      // double (*)(double) — for stdlib higher-order numerical fns
+    FnD_D,      // double (*)(double)                  — bisect/newton/simpson/trapezoid/golden_section
+    FnDD_D,     // double (*)(double, double)          — rk4 (dydt = f(t, y))
+    FnDDD_D,    // double (*)(double, double, double)  — headroom for 3-arg numerical callbacks
     Unknown,    // could not infer; will likely cause a downstream error
 };
 
@@ -50,7 +58,9 @@ inline const char* ctype_name(CType t) {
         case CType::Mat:   return "knot_mat";
         case CType::Str:   return "const char*";
         case CType::Nil:   return "void";
-        case CType::FnD_D: return "double (*)(double)";
+        case CType::FnD_D:   return "double (*)(double)";
+        case CType::FnDD_D:  return "double (*)(double, double)";
+        case CType::FnDDD_D: return "double (*)(double, double, double)";
         case CType::Unknown: return "/*unknown*/ void*";
     }
     return "/*?*/";
@@ -268,13 +278,23 @@ private:
                     auto it = fn_sigs_.find(e.str);
                     if (it != fn_sigs_.end()) {
                         const FnSig& sig = it->second;
-                        if (sig.param_types.size() == 1
-                         && sig.param_types[0] == CType::Num
-                         && sig.ret_type == CType::Num) {
-                            return {e.str, CType::FnD_D};
+                        // A user-defined fn is passable as a first-class value
+                        // only if it's a pure numerical signature of the form
+                        // (Num, Num, ...) -> Num, for arity 1..3.
+                        bool all_num = sig.ret_type == CType::Num;
+                        for (CType p : sig.param_types)
+                            if (p != CType::Num) { all_num = false; break; }
+                        if (all_num) {
+                            switch (sig.param_types.size()) {
+                                case 1: return {e.str, CType::FnD_D};
+                                case 2: return {e.str, CType::FnDD_D};
+                                case 3: return {e.str, CType::FnDDD_D};
+                                default: break;
+                            }
                         }
                         fail(e.span, "function " + e.str
-                            + " has signature that isn't passable in --cc v1");
+                            + " has signature that isn't passable in --cc v1"
+                            + " (need 1-3 Num args, Num return)");
                     }
                     fail(e.span, "unknown name: " + e.str);
                 }
@@ -427,15 +447,27 @@ private:
         const std::string& name = e.callee->str;
 
         // If the callee is a *variable* of function-pointer type (e.g. a
-        // parameter `f` declared FnD_D), emit a function-pointer call.
+        // parameter `f` declared FnD_D / FnDD_D / FnDDD_D), emit a
+        // function-pointer call. The expected arity is the type's arity.
         CType var_t = scope->lookup(name);
-        if (var_t == CType::FnD_D) {
-            if (e.elems.size() != 1)
-                fail(e.span, "function-pointer call needs 1 arg");
-            ExprResult a = emit_expr(*e.elems[0], scope);
-            if (a.type != CType::Num)
-                fail(e.elems[0]->span, "function-pointer arg must be num");
-            return {"(" + name + "(" + a.code + "))", CType::Num};
+        if (var_t == CType::FnD_D || var_t == CType::FnDD_D || var_t == CType::FnDDD_D) {
+            size_t expected = (var_t == CType::FnD_D)  ? 1
+                            : (var_t == CType::FnDD_D) ? 2
+                            : 3;
+            if (e.elems.size() != expected)
+                fail(e.span, "function-pointer call needs "
+                    + std::to_string(expected) + " args, got "
+                    + std::to_string(e.elems.size()));
+            std::string call = name + "(";
+            for (size_t i = 0; i < expected; ++i) {
+                ExprResult a = emit_expr(*e.elems[i], scope);
+                if (a.type != CType::Num)
+                    fail(e.elems[i]->span, "function-pointer arg must be num");
+                if (i) call += ", ";
+                call += a.code;
+            }
+            call += ")";
+            return {"(" + call + ")", CType::Num};
         }
 
         // Evaluate args.
@@ -966,9 +998,9 @@ private:
     // that function-pointer types need the name spliced into the middle:
     // "double (*NAME)(double)" not "double (*)(double) NAME".
     static std::string c_decl(CType t, const std::string& name) {
-        if (t == CType::FnD_D) {
-            return "double (*" + name + ")(double)";
-        }
+        if (t == CType::FnD_D)   return "double (*" + name + ")(double)";
+        if (t == CType::FnDD_D)  return "double (*" + name + ")(double, double)";
+        if (t == CType::FnDDD_D) return "double (*" + name + ")(double, double, double)";
         return std::string(ctype_name(t)) + " " + name;
     }
     static int ctype_rank(CType t) {
@@ -981,6 +1013,8 @@ private:
             case CType::Vec:     return 2;
             case CType::Mat:     return 2;
             case CType::FnD_D:   return 2;
+            case CType::FnDD_D:  return 2;
+            case CType::FnDDD_D: return 2;
         }
         return 0;
     }
@@ -1130,9 +1164,12 @@ private:
                 // If `name` is itself being called -- f(...) -- it's a function.
                 if (e.callee && e.callee->kind == ExprKind::Ident
                  && e.callee->str == name) {
-                    // For now, only support double->double signatures, which
-                    // covers bisect/newton/simpson/trapezoid/golden_section.
+                    // Numerical signatures of arity 1..3 -- covers bisect /
+                    // newton / simpson / trapezoid / golden_section (1-arg)
+                    // and rk4 (2-arg), with headroom for 3-arg callbacks.
                     if (e.elems.size() == 1) return CType::FnD_D;
+                    if (e.elems.size() == 2) return CType::FnDD_D;
+                    if (e.elems.size() == 3) return CType::FnDDD_D;
                 }
                 if (e.callee && e.callee->kind == ExprKind::Ident) {
                     const std::string& fn = e.callee->str;

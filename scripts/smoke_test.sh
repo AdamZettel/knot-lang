@@ -185,6 +185,30 @@ GOT=$(./knot /tmp/_bc_err.knot 2>&1 | head -1)
 check "break outside loop errors" "error: 'break' is not inside a loop" "$GOT"
 rm -f /tmp/_bc_err.knot
 
+echo "== higher-order functions in --exec =="
+
+# rk4 has a 2-arg callback (t, y) -> dy/dt -- previously interpreter-only.
+cat > /tmp/_rk4.knot <<'EOF'
+def dydt(t, y) { return y }
+r = rk4(dydt, 0.0, 1.0, 1.0, 100)
+print(r)
+EOF
+GOT_INTERP=$(./knot /tmp/_rk4.knot 2>&1)
+GOT_EXEC=$(./knot --exec /tmp/_rk4.knot 2>/dev/null)
+check "rk4 (interp) ~= e" "2.71828" "$GOT_INTERP"
+check "rk4 (--exec) matches interp" "$GOT_INTERP" "$GOT_EXEC"
+rm -f /tmp/_rk4.knot /tmp/knot__rk4.*
+
+# 3-arg numerical callback (FnDDD_D path).
+cat > /tmp/_h3.knot <<'EOF'
+def apply3(g, a, b, c) { return g(a, b, c) }
+def vol(l, w, h) { return l * w * h }
+print(apply3(vol, 2.0, 3.0, 4.0))
+EOF
+GOT=$(./knot --exec /tmp/_h3.knot 2>/dev/null)
+check "3-arg fn-ptr (--exec)" "24" "$GOT"
+rm -f /tmp/_h3.knot /tmp/knot__h3.*
+
 echo "== format =="
 
 cat > /tmp/_fmt.knot <<'EOF'

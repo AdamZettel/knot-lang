@@ -222,8 +222,7 @@ Root finding: `bisect`, `newton`
 
 Quadrature: `trapezoid`, `simpson`
 
-ODE: `rk4` (interpreter only — passes a function as an argument, which the
-transpiler doesn't yet handle)
+ODE: `rk4`
 
 Optimization: `golden_section`
 
@@ -353,11 +352,12 @@ with the program's stdout). See `examples/bisect_annotated.knot` and its
   Builtins are the fast path; for hot loops you'd call into linalg ops.
 - `--exec` is a strict subset of the interpreter.  The transpiler doesn't
   yet handle heterogeneous lists, closures, default args, matrix literals,
-  slicing, string concat, or function-arg-typed parameters beyond the
-  numerical `double (*)(double)` shape.  Tagged-index checks are erased
-  at transpile time.  Programs using interpreter-only features run fine
-  with `./knot FILE` but error out under `./knot --exec FILE`.  The
-  authoritative list is the comment at the top of `src/codegen.hpp`.
+  slicing, or string concat.  Numerical function arguments work for arities
+  1-3 (`double (*)(double)`, `(double, double)`, `(double, double, double)`),
+  which covers `rk4`/`bisect`/`newton`/`golden_section`/`trapezoid`/`simpson`.
+  Tagged-index checks are erased at transpile time.  Programs using
+  interpreter-only features run fine with `./knot FILE` but error out under
+  `./knot --exec FILE`.  Authoritative list at the top of `src/codegen.hpp`.
 
 ## Bugs surfaced during construction
 

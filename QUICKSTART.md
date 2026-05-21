@@ -94,10 +94,6 @@ there's no issue tracker yet) and the next session can sharpen them.
 - No plotting. Save numbers to a file via shell redirect, then plot
   outside knot.
 - No FFI to C libraries. Coming.
-- `rk4` (Runge-Kutta ODE) works interpreted but not in `--exec` because
-  the higher-order function signature isn't supported by the transpiler
-  yet. If you call it from `--exec`, the binary will abort with a clear
-  message.
 
 ## What the directory contains
 
