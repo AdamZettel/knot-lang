@@ -155,6 +155,22 @@ GOT=$(./knot --exec /tmp/_csv_test.knot 2>&1 | tr '\n' '|')
 check "read_csv shape + index (--exec)" "2 3|6|" "$GOT"
 rm -f /tmp/_csvdata.csv /tmp/_csv_test.knot /tmp/knot__csv_test.*
 
+echo "== --record =="
+
+cat > /tmp/_rec.knot <<'EOF'
+x = 3
+y = 4
+z = x + y
+EOF
+./knot --record /tmp/_rec.knot > /dev/null 2>&1
+# Snapshot after the last stmt should show all three names with correct values.
+GOT=$(grep -A4 "STEP 2 " /tmp/_rec.knot.trace | tr '\n' '|')
+check "record: final state captured" "STEP 2 line=3:1|  x = 3|  y = 4|  z = 7|" "$GOT"
+# Header should be present.
+GOT=$(head -1 /tmp/_rec.knot.trace)
+check "record: trace header present" "# knot trace v1" "$GOT"
+rm -f /tmp/_rec.knot /tmp/_rec.knot.trace
+
 echo "== --trap-nan =="
 
 cat > /tmp/_nan_silent.knot <<'EOF'

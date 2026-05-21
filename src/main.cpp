@@ -49,12 +49,22 @@ static bool load_stdlib(Interpreter& interp) {
 static int run_source(const std::string& filename, const std::string& src,
                       bool step_mode = false,
                       Annotations annots = Annotations{},
-                      bool trap_nan = false) {
+                      bool trap_nan = false,
+                      const std::string& trace_path = "") {
+    std::ofstream trace_file;
+    if (!trace_path.empty()) {
+        trace_file.open(trace_path);
+        if (!trace_file) {
+            std::cerr << "cannot open trace file " << trace_path << " for writing\n";
+            return 1;
+        }
+    }
     try {
         Interpreter interp;
         if (!load_stdlib(interp)) return 1;
         if (step_mode) interp.enable_step_mode(std::move(annots));
         if (trap_nan)  interp.enable_trap_nan();
+        if (!trace_path.empty()) interp.enable_record(trace_file);
         Lexer lex(src);
         auto toks = lex.tokenize();
         Parser p(toks);
@@ -666,6 +676,7 @@ int main(int argc, char** argv) {
     enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec } mode = Mode::Run;
     const char* filename = nullptr;
     bool trap_nan = false;
+    std::string trace_path;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if      (arg == "--step")     mode = Mode::Step;
@@ -675,8 +686,19 @@ int main(int argc, char** argv) {
         else if (arg == "--cc")       mode = Mode::CC;
         else if (arg == "--exec")     mode = Mode::Exec;
         else if (arg == "--trap-nan") trap_nan = true;
+        else if (arg == "--record") {
+            // Trace path is filled in below once we know the input filename.
+            trace_path = "__placeholder__";
+        }
         else if (!arg.empty() && arg[0] != '-' && !filename) filename = argv[i];
         else { std::cerr << "unrecognized arg: " << arg << "\n"; return 2; }
+    }
+    if (trace_path == "__placeholder__") {
+        if (!filename) {
+            std::cerr << "--record needs an input file\n";
+            return 2;
+        }
+        trace_path = std::string(filename) + ".trace";
     }
     if (!filename) return repl();
 
@@ -694,7 +716,7 @@ int main(int argc, char** argv) {
             if (annots.empty()) {
                 std::cerr << "(no annotations found at " << filename << ".annot)\n";
             }
-            return run_source(filename, src, true, std::move(annots), trap_nan);
+            return run_source(filename, src, true, std::move(annots), trap_nan, trace_path);
         }
         case Mode::CC: {
             // Print generated C to stdout. Stdlib gets prepended.
@@ -728,7 +750,7 @@ int main(int argc, char** argv) {
         case Mode::Exec:
             return compile_and_run(filename, src);
         case Mode::Run:
-            return run_source(filename, src, false, Annotations{}, trap_nan);
+            return run_source(filename, src, false, Annotations{}, trap_nan, trace_path);
     }
     return 0;
 }

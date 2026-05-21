@@ -50,11 +50,26 @@ public:
 
     void enable_trap_nan() { trap_nan = true; }
 
+    // Recording mode (--record). When enabled, after each statement we
+    // dump the global Env to `trace_out` so the run can be replayed or
+    // inspected post-mortem. v1 captures globals only (function-local
+    // scopes are not yet traced) and writes a human-readable text format.
+    void enable_record(std::ostream& out) {
+        record_mode = true;
+        trace_out = &out;
+    }
+
     void run(const std::vector<StmtPtr>& program) {
         // The single source of truth for stmt-block execution -- including
         // step-mode lookup, composite-key matching, and per-key suppression
         // -- lives in run_block(). The top-level program is just another
         // block.
+        if (trace_out) {
+            *trace_out << "# knot trace v1\n";
+            *trace_out << "# format: STEP <n> line=<L>:<C> followed by\n";
+            *trace_out << "#         indented '  <name> = <value>' lines.\n";
+            *trace_out << "# globals only in v1; function-local scopes not yet traced.\n";
+        }
         try {
             run_block(program, globals);
         } catch (const BreakSignal& b) {
@@ -80,6 +95,9 @@ private:
     EnvPtr globals;
     bool step_mode = false;
     Annotations annotations;
+    bool record_mode = false;
+    std::ostream* trace_out = nullptr;
+    size_t snapshot_index = 0;
     // Keys that have already been shown this run. Used to suppress duplicate
     // annotation printing in tight loops.
     std::unordered_set<std::string> seen_annotations;
@@ -103,7 +121,10 @@ private:
     // through to plain exec() when step_mode is off.
     void run_block(const std::vector<StmtPtr>& body, EnvPtr env) {
         if (!step_mode || annotations.empty()) {
-            for (const auto& s : body) exec(*s, env);
+            for (const auto& s : body) {
+                exec(*s, env);
+                if (record_mode) snapshot(*s);
+            }
             return;
         }
         std::vector<std::string> hashes;
@@ -120,13 +141,47 @@ private:
                     key += hashes[i + k];
                 }
                 print_annotation(key, hit.desc);
-                for (int k = 0; k < hit.consumed; ++k) exec(*body[i + k], env);
+                for (int k = 0; k < hit.consumed; ++k) {
+                    exec(*body[i + k], env);
+                    if (record_mode) snapshot(*body[i + k]);
+                }
                 i += hit.consumed;
             } else {
                 exec(*body[i], env);
+                if (record_mode) snapshot(*body[i]);
                 ++i;
             }
         }
+    }
+
+    // Write a snapshot of globals to the trace stream after a statement
+    // has just finished executing. v1 format -- human-readable, one STEP
+    // block per statement, sorted variable names for determinism. Function
+    // and builtin bindings are excluded (they don't change, and printing
+    // them every step would drown the signal).
+    //
+    // The trace format is designed to extend: a future CALL/RET line can
+    // be added alongside STEP without breaking readers that only know
+    // about STEP. That's the hook the call-graph view will use.
+    void snapshot(const Stmt& s) {
+        if (!trace_out) return;
+        auto& out = *trace_out;
+        out << "STEP " << snapshot_index
+            << " line=" << s.span.line << ":" << s.span.col << "\n";
+        // Sorted iteration so two runs with the same source produce
+        // byte-identical traces (useful for regression testing).
+        std::vector<std::string> names;
+        names.reserve(globals->bindings().size());
+        for (const auto& [name, val] : globals->bindings()) {
+            if (val.is_fn() || val.is_builtin()) continue;
+            names.push_back(name);
+        }
+        std::sort(names.begin(), names.end());
+        for (const auto& name : names) {
+            const Value& val = globals->bindings().at(name);
+            out << "  " << name << " = " << format_value(val) << "\n";
+        }
+        ++snapshot_index;
     }
 
     // ---- Statements ------------------------------------------------------

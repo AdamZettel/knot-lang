@@ -54,6 +54,7 @@ Try the annotated example with:
 | `./knot --step FILE` | Run interpreted with annotations printed as commentary. |
 | `./knot --scaffold FILE` | Emit a `.annot` template you fill in by hand. |
 | `./knot --trap-nan FILE` | Run FILE, but abort at the first operation that produces NaN or Inf. Interpreter only for v1; ignored under `--exec`. |
+| `./knot --record FILE` | Run FILE and write per-statement global state to `FILE.trace`. v1 substrate for replay and call-graph views. |
 | `./knot` | Start the REPL. Try `lslib` and `whatis solve`. |
 
 ## Surface syntax
@@ -239,6 +240,54 @@ stay zero-overhead.
 Interpreter only for v1.  `--exec` mode silently ignores the flag for
 now -- enabling hardware FPE trapping in the transpiled output is a
 separate piece of work.
+
+## Numerical debugging: `--record` (omniscient trace)
+
+`--trap-nan` catches one specific class of bug at the moment it happens.
+The bigger move is to record the *entire* execution so you can scrub
+through it afterward.
+
+```
+$ ./knot --record demo.knot
+$ head -16 demo.knot.trace
+# knot trace v1
+# format: STEP <n> line=<L>:<C> followed by
+#         indented '  <name> = <value>' lines.
+# globals only in v1; function-local scopes not yet traced.
+STEP 0 line=1:1
+  S = 100
+STEP 1 line=2:1
+  K = 100
+  S = 100
+STEP 2 line=3:1
+  K = 100
+  S = 100
+  r = 0.05
+...
+```
+
+Each STEP block captures the global state after one statement.
+Mutations show up at the statement that performed them; loop iterations
+each get their own block; everything is sorted-name for deterministic
+diffs.
+
+What you can already do with a trace file today:
+
+- `grep ^STEP demo.knot.trace | wc -l` — how many statements executed
+- `grep "residual =" demo.knot.trace` — pull a scalar's evolution
+- `diff a.trace b.trace` — bisect what changed between two runs
+
+What's coming next on top of this substrate:
+
+- A `--replay` mode that loads a trace and drops into a REPL with
+  `goto`/`inspect`/`history`/`next`/`prev` commands.
+- A `--callgraph` mode that emits a Graphviz `.dot` file showing
+  which functions called which, with call counts and argument values.
+- Per-scope snapshots (function locals are not yet traced in v1).
+
+The recording overhead is non-trivial -- the formatter walks every
+global at every statement -- so this is a debugging tool, not a flag
+to leave on in production runs.
 
 ## Standard library
 
