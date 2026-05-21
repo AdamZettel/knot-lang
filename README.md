@@ -237,6 +237,10 @@ Arrays: `zeros(n) | zeros(r,c)`, `ones(n) | ones(r,c)`, `eye(n)`,
 Untagged access: `at(c, i)`, `at(M, i, j)`, `set(c, i, v)`, `set(M, i, j, v)`
 Lists: `append(list, value)` (interpreter only — the transpiler doesn't
        handle heterogeneous lists yet)
+Strings: `format(fmt, ...args)` — printf-style. `%d`/`%i`/`%x`/`%o`/`%u`/`%c`
+       for the int family, `%f`/`%e`/`%g` for the float family, `%s` for
+       strings. Flags, width, and precision pass through to C's snprintf,
+       so `%.3f` and `%-10s` work as expected. Interpreter only for v1.
 
 Runtime extensions (compiled C++, available in both interpreter and
 `--exec`):
@@ -335,7 +339,7 @@ with the program's stdout). See `examples/bisect_annotated.knot` and its
 ## What's deliberately missing
 
 - No structs or classes.
-- No modules, exceptions, or string formatting beyond concat.
+- No modules, no exceptions.
 - No dicts. Lists are heterogeneous, indexable, and appendable via
   `append(xs, val)`, but only in the interpreter — the transpiler doesn't
   handle heterogeneous lists in `--exec` mode.

@@ -185,6 +185,23 @@ GOT=$(./knot /tmp/_bc_err.knot 2>&1 | head -1)
 check "break outside loop errors" "error: 'break' is not inside a loop" "$GOT"
 rm -f /tmp/_bc_err.knot
 
+echo "== format =="
+
+cat > /tmp/_fmt.knot <<'EOF'
+print(format("x = %.3f", 3.14159265))
+print(format("%d + %d = %d", 2, 3, 5))
+print(format("|%-6s|%6s|", "ab", "cd"))
+print(format("%05d", 7))
+print(format("100%% done"))
+EOF
+GOT=$(./knot /tmp/_fmt.knot 2>&1 | tr '\n' '|')
+check "format (interp)" "x = 3.142|2 + 3 = 5||ab    |    cd||00007|100% done|" "$GOT"
+rm -f /tmp/_fmt.knot
+
+# Type mismatch errors cleanly rather than crashing.
+GOT=$(echo 'print(format("%d", "oops"))' | ./knot /dev/stdin 2>&1 | head -1)
+check "format type mismatch errors" "error: format: %d expects num, got str" "$GOT"
+
 echo "== lists =="
 
 # append on a freshly-empty list, with mixed types.

@@ -6,7 +6,9 @@
 #include "linalg.hpp"
 #include "value.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -882,6 +884,79 @@ inline Value b_append(const std::vector<Value>& args, Span s) {
     return Value::nil();
 }
 
+// printf-style string formatting. `format("x = %.3f", x)` returns a string.
+// We pass through to C's snprintf with the user's conversion spec, after
+// type-checking the corresponding argument. Supported conversions:
+//   %d %i %x %X %o %u %c  -- integer family (the num is cast to long long)
+//   %f %e %E %g %G        -- float family
+//   %s                    -- string
+//   %%                    -- literal percent
+// Flags, width, and precision in the spec are passed straight to snprintf.
+inline Value b_format(const std::vector<Value>& args, Span s) {
+    if (args.empty() || !args[0].is_str())
+        throw Diag(s, "format(fmt_str, ...args): first arg must be a string");
+    const std::string& fmt = args[0].as_str();
+    std::string out;
+    size_t arg_idx = 1;
+    size_t i = 0;
+    while (i < fmt.size()) {
+        char c = fmt[i];
+        if (c != '%') { out += c; ++i; continue; }
+        if (i + 1 < fmt.size() && fmt[i + 1] == '%') {
+            out += '%'; i += 2; continue;
+        }
+        // Extract conversion spec: '%' [flags] [width] [.precision] conv
+        size_t spec_start = i;
+        ++i;
+        while (i < fmt.size() && std::strchr("-+ #0", fmt[i])) ++i;
+        while (i < fmt.size() && std::isdigit((unsigned char)fmt[i])) ++i;
+        if (i < fmt.size() && fmt[i] == '.') {
+            ++i;
+            while (i < fmt.size() && std::isdigit((unsigned char)fmt[i])) ++i;
+        }
+        if (i >= fmt.size())
+            throw Diag(s, "format: incomplete conversion spec at end of format string");
+        char conv = fmt[i++];
+        std::string spec = fmt.substr(spec_start, i - spec_start);
+        if (arg_idx >= args.size())
+            throw Diag(s, "format: not enough arguments for format string");
+        const Value& a = args[arg_idx++];
+        // Print one value into a buffer, growing on truncation.
+        auto try_once = [&](char* buf, size_t bufsize) -> int {
+            if (conv=='d'||conv=='i'||conv=='x'||conv=='X'||conv=='o'||conv=='u'||conv=='c') {
+                if (!a.is_num())
+                    throw Diag(s, std::string("format: %") + conv + " expects num, got " + a.type_name());
+                std::string llspec = spec.substr(0, spec.size() - 1) + "ll" + conv;
+                return std::snprintf(buf, bufsize, llspec.c_str(), (long long)a.as_num());
+            }
+            if (conv=='f'||conv=='e'||conv=='E'||conv=='g'||conv=='G') {
+                if (!a.is_num())
+                    throw Diag(s, std::string("format: %") + conv + " expects num, got " + a.type_name());
+                return std::snprintf(buf, bufsize, spec.c_str(), a.as_num());
+            }
+            if (conv == 's') {
+                if (!a.is_str())
+                    throw Diag(s, std::string("format: %s expects str, got ") + a.type_name());
+                return std::snprintf(buf, bufsize, spec.c_str(), a.as_str().c_str());
+            }
+            throw Diag(s, std::string("format: unknown conversion '%") + conv + "'");
+        };
+        char small[128];
+        int n = try_once(small, sizeof(small));
+        if (n < 0) throw Diag(s, "format: snprintf failed");
+        if ((size_t)n < sizeof(small)) {
+            out.append(small, n);
+        } else {
+            std::string big((size_t)n + 1, '\0');
+            try_once(&big[0], big.size());
+            out.append(big.data(), (size_t)n);
+        }
+    }
+    if (arg_idx < args.size())
+        throw Diag(s, "format: more arguments than the format string consumed");
+    return Value::str(out);
+}
+
 inline Value b_input(const std::vector<Value>&, Span) {
     std::string line;
     if (!std::getline(std::cin, line)) return Value::nil();
@@ -1151,6 +1226,7 @@ inline void Interpreter::register_builtins() {
     reg("at",        builtins::b_at);
     reg("set",       builtins::b_set);
     reg("append",    builtins::b_append);
+    reg("format",    builtins::b_format);
     reg("num",       builtins::b_num);
     reg("str",       builtins::b_str);
     reg("len",       builtins::b_len);
