@@ -675,7 +675,7 @@ int main(int argc, char** argv) {
     //   knot --show FILE         -> print source with annotations inlined
     //   knot --cc FILE           -> transpile to C; print to stdout
     //   knot --exec FILE         -> transpile, compile with cc, run binary
-    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay } mode = Mode::Run;
+    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay, Test } mode = Mode::Run;
     const char* filename = nullptr;
     bool trap_nan = false;
     std::string trace_path;
@@ -689,6 +689,7 @@ int main(int argc, char** argv) {
         else if (arg == "--exec")     mode = Mode::Exec;
         else if (arg == "--callgraph") mode = Mode::Callgraph;
         else if (arg == "--replay")    mode = Mode::Replay;
+        else if (arg == "--test")      mode = Mode::Test;
         else if (arg == "--trap-nan") trap_nan = true;
         else if (arg == "--record") {
             // Trace path is filled in below once we know the input filename.
@@ -779,6 +780,28 @@ int main(int argc, char** argv) {
             return compile_and_run(filename, src);
         case Mode::Run:
             return run_source(filename, src, false, Annotations{}, trap_nan, trace_path);
+        case Mode::Test: {
+            // Run all top-level `test "name" { ... }` blocks. Non-test
+            // top-level stmts execute once first (to set up defs / globals).
+            // Returns 1 if any test failed.
+            try {
+                Interpreter interp;
+                if (!load_stdlib(interp)) return 1;
+                Lexer lex(src);
+                auto toks = lex.tokenize();
+                Parser p(toks);
+                auto program = p.parse_program();
+                int failed = interp.run_tests(program, filename);
+                g_retained.push_back(std::move(program));
+                return failed == 0 ? 0 : 1;
+            } catch (const Diag& d) {
+                render_diag(filename, src, d);
+                return 1;
+            } catch (const std::exception& e) {
+                std::cerr << "internal error: " << e.what() << "\n";
+                return 2;
+            }
+        }
         case Mode::Callgraph: return 0; // handled above; unreachable
         case Mode::Replay:    return 0; // handled above; unreachable
     }

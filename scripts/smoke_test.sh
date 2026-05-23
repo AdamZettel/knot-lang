@@ -47,14 +47,17 @@ echo "== transpiler =="
 # Clear any cached binaries so we exercise the full path.
 rm -f /tmp/knot_*.out /tmp/knot_*.srchash /tmp/knot_*.c
 
-GOT=$(./knot --exec examples/bisect_annotated.knot 2>&1)
+# --exec runs go through cc, which can emit warnings to stderr; drop
+# those so the program's stdout is what we compare. Real --exec runtime
+# errors land in --exec's own stderr (already covered by separate checks).
+GOT=$(./knot --exec examples/bisect_annotated.knot 2>/dev/null)
 check "bisect (--exec)" "1.41421" "$GOT"
 
-GOT=$(./knot --exec examples/for_tour.knot 2>&1 | tail -1)
+GOT=$(./knot --exec examples/for_tour.knot 2>/dev/null | tail -1)
 check "for_tour last line (--exec)" "2" "$GOT"
 
 # Option pricer: just check that the Black-Scholes line is right.
-GOT=$(./knot --exec examples/option_pricer.knot 2>&1 | grep -A1 "Closed-form" | tail -1)
+GOT=$(./knot --exec examples/option_pricer.knot 2>/dev/null | grep -A1 "Closed-form" | tail -1)
 check "option pricer BS call" "  call = 10.4506" "$GOT"
 
 echo "== tag detection (new for syntax) =="
@@ -110,7 +113,7 @@ print(out4)
 EOF
 GOT=$(./knot /tmp/_forcov.knot 2>&1 | tr '\n' ',')
 check "for-form outputs (interp)" "10,60,3,14," "$GOT"
-GOT=$(./knot --exec /tmp/_forcov.knot 2>&1 | tr '\n' ',')
+GOT=$(./knot --exec /tmp/_forcov.knot 2>/dev/null | tr '\n' ',')
 check "for-form outputs (--exec)" "10,60,3,14," "$GOT"
 rm -f /tmp/_forcov.knot /tmp/knot__forcov.*
 
@@ -124,7 +127,7 @@ print(v)
 EOF
 GOT=$(./knot /tmp/_sort_test.knot 2>&1)
 check "sort_vec (interp)" "[1, 1, 2, 3, 4, 5, 6, 9]" "$GOT"
-GOT=$(./knot --exec /tmp/_sort_test.knot 2>&1)
+GOT=$(./knot --exec /tmp/_sort_test.knot 2>/dev/null)
 check "sort_vec (--exec)" "[1, 1, 2, 3, 4, 5, 6, 9]" "$GOT"
 rm -f /tmp/_sort_test.knot /tmp/knot__sort_test.*
 
@@ -135,7 +138,7 @@ print(rng_uniform())
 print(rng_normal())
 EOF
 GOT_INTERP=$(./knot /tmp/_rng_test.knot 2>&1)
-GOT_EXEC=$(./knot --exec /tmp/_rng_test.knot 2>&1)
+GOT_EXEC=$(./knot --exec /tmp/_rng_test.knot 2>/dev/null)
 check "RNG agrees across modes (seed=42)" "$GOT_INTERP" "$GOT_EXEC"
 rm -f /tmp/_rng_test.knot /tmp/knot__rng_test.*
 
@@ -151,7 +154,7 @@ print(M[1, 2])
 EOF
 GOT=$(./knot /tmp/_csv_test.knot 2>&1 | tr '\n' '|')
 check "read_csv shape + index (interp)" "2 3|6|" "$GOT"
-GOT=$(./knot --exec /tmp/_csv_test.knot 2>&1 | tr '\n' '|')
+GOT=$(./knot --exec /tmp/_csv_test.knot 2>/dev/null | tr '\n' '|')
 check "read_csv shape + index (--exec)" "2 3|6|" "$GOT"
 rm -f /tmp/_csvdata.csv /tmp/_csv_test.knot /tmp/knot__csv_test.*
 

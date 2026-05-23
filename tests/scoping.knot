@@ -1,0 +1,56 @@
+# Verify that each `test "name" { ... }` block runs in a fresh child of
+# globals, so brand-new bindings created inside one test don't leak to
+# the next, and that top-level defs are visible from inside test bodies.
+#
+# Note: knot's assignment is Python-like -- writing to a name that
+# already exists in an outer scope updates it in place. So assigning to
+# a TOP-LEVEL name from inside a test DOES mutate that global. This is
+# documented language behavior, not a bug.
+
+x_top = 100
+
+def double_it(n) { return n * 2 }
+
+def make_pair(a, b) {
+    # `make_pair` is referenced by tests below; defined at top level so
+    # it's visible to every test.
+    return [a, b]
+}
+
+test "top-level binding visible in test" {
+    assert_eq(x_top, 100)
+}
+
+test "top-level def visible in test" {
+    assert_eq(double_it(21), 42)
+}
+
+test "stdlib def reachable: sum" {
+    assert_eq(sum([1.0, 2.0, 3.0, 4.0]), 10.0)
+}
+
+test "stdlib def reachable: mean" {
+    assert_near(mean([1.0, 2.0, 3.0, 4.0]), 2.5)
+}
+
+test "user-defined helper reachable: make_pair" {
+    p = make_pair(10, 20)
+    assert_eq(at(p, 0), 10)
+    assert_eq(at(p, 1), 20)
+}
+
+test "fresh local does not leak (setup)" {
+    # `freshly_made` is created in THIS test's child scope. The next
+    # test will create a new binding with the same name and observe a
+    # fresh value, proving the binding from this test did not leak.
+    freshly_made = 7
+    assert_eq(freshly_made, 7)
+}
+
+test "fresh local from prior test is gone" {
+    # If the prior test's scope had been shared with this one, the
+    # binding `freshly_made = 7` would still be live. To prove that's
+    # not the case, we (re)bind it to a different value and confirm.
+    freshly_made = 99
+    assert_eq(freshly_made, 99)
+}

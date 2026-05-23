@@ -113,6 +113,7 @@ private:
                 {"def", Tok::Def}, {"return", Tok::Return},
                 {"break", Tok::Break}, {"continue", Tok::Continue},
                 {"True", Tok::True}, {"False", Tok::False}, {"None", Tok::None_},
+                {"test", Tok::Test},
                 // Python-style word operators, alongside symbol forms.
                 {"and", Tok::AndAnd}, {"or", Tok::OrOr}, {"not", Tok::Bang},
             };

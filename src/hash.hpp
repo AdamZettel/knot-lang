@@ -199,6 +199,11 @@ inline void serialize_stmt(const Stmt& s, std::ostringstream& o) {
             break;
         case StmtKind::Break:    o << "Br"; break;
         case StmtKind::Continue: o << "Co"; break;
+        case StmtKind::TestDecl:
+            o << "T(" << s.name << ",";
+            serialize_block(s.body, o);
+            o << ")";
+            break;
     }
 }
 

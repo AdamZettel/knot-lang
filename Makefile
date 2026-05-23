@@ -16,10 +16,12 @@ $(EMBED): $(STDLIB) scripts/embed_stdlib.sh
 	@mkdir -p src
 	./scripts/embed_stdlib.sh $(STDLIB) > $(EMBED)
 
-# Run the smoke test suite. Exercises both interpreter and transpiler on
-# the example programs, and verifies the axis-swap detection still fires.
+# Run the smoke test suite (interpreter+transpiler parity on examples,
+# tag-detection sanity) followed by the in-language unit tests under
+# tests/. A passing `make test` means both layers are green.
 test: $(TARGET)
 	./scripts/smoke_test.sh
+	./scripts/run_unit_tests.sh
 
 clean:
 	rm -f $(TARGET) $(EMBED)

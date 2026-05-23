@@ -35,8 +35,11 @@ namespace knot {
 struct ReplayStep {
     int index = -1;
     int line = 0, col = 0;
-    // (name, formatted_value) in sorted order, matching the trace.
+    std::string in_fn;             // empty if at top level
+    // Globals (sorted) and current-frame locals (sorted), as they were
+    // immediately after this statement finished.
     std::vector<std::pair<std::string, std::string>> vars;
+    std::vector<std::pair<std::string, std::string>> locals;
 };
 
 struct ReplayCall {
@@ -66,7 +69,7 @@ inline ReplayTrace parse_replay_trace(const std::string& text) {
         trim_inplace(line);
         if (line.empty() || line[0] == '#') continue;
 
-        // STEP block header: "STEP <n> line=<L>:<C>"
+        // STEP block header: "STEP <n> line=<L>:<C> [in=<fname>]"
         if (line.compare(0, 5, "STEP ") == 0) {
             ReplayStep s;
             // Parse N
@@ -84,19 +87,34 @@ inline ReplayTrace parse_replay_trace(const std::string& text) {
                     s.col  = std::stoi(line.substr(colon + 1));
                 }
             }
+            // Optional `in=<fname>` at end of header line.
+            size_t in_pos = line.find(" in=");
+            if (in_pos != std::string::npos) {
+                s.in_fn = line.substr(in_pos + 4);
+            }
             t.steps.push_back(std::move(s));
             last_step_index = (int)t.steps.size() - 1;
             continue;
         }
-        // Indented variable line: "  name = value"
+        // Indented variable line, either "  name = value" (global) or
+        // "  LOCAL name = value" (function-local in the current frame).
         if (line.size() >= 2 && line[0] == ' ' && line[1] == ' ') {
             if (last_step_index < 0) continue;
             std::string body = line.substr(2);
+            bool is_local = false;
+            if (body.compare(0, 6, "LOCAL ") == 0) {
+                is_local = true;
+                body = body.substr(6);
+            }
             size_t eq = body.find(" = ");
             if (eq == std::string::npos) continue;
             std::string name = body.substr(0, eq);
             std::string value = body.substr(eq + 3);
-            t.steps[last_step_index].vars.emplace_back(std::move(name), std::move(value));
+            if (is_local) {
+                t.steps[last_step_index].locals.emplace_back(std::move(name), std::move(value));
+            } else {
+                t.steps[last_step_index].vars.emplace_back(std::move(name), std::move(value));
+            }
             continue;
         }
         // CALL <name>(<args>) at line=<L>:<C>
@@ -135,8 +153,12 @@ inline ReplayTrace parse_replay_trace(const std::string& text) {
     return t;
 }
 
-// Find the value of `name` at step `step_idx`, returning empty if absent.
+// Find the value of `name` at this step. Locals shadow globals
+// (innermost wins, just like the interpreter's scoping). Returns empty
+// if the name isn't bound in either scope at this step.
 inline std::string lookup_var(const ReplayStep& s, const std::string& name) {
+    for (const auto& [n, v] : s.locals)
+        if (n == name) return v;
     for (const auto& [n, v] : s.vars)
         if (n == name) return v;
     return "";
@@ -184,7 +206,9 @@ inline int run_replay_repl(const ReplayTrace& t) {
     while (true) {
         const ReplayStep& s = t.steps[cur];
         std::cout << "(replay) [step " << s.index
-                  << " line=" << s.line << ":" << s.col << "]> ";
+                  << " line=" << s.line << ":" << s.col;
+        if (!s.in_fn.empty()) std::cout << " in=" << s.in_fn;
+        std::cout << "]> ";
         std::cout.flush();
         std::string line;
         if (!std::getline(std::cin, line)) { std::cout << "\n"; break; }
@@ -221,9 +245,16 @@ inline int run_replay_repl(const ReplayTrace& t) {
             continue;
         }
         if (cmd == "list" || cmd == "l") {
-            if (s.vars.empty()) std::cout << "  (no variables defined yet)\n";
+            if (s.vars.empty() && s.locals.empty())
+                std::cout << "  (no variables defined yet)\n";
             for (const auto& [name, val] : s.vars) {
                 std::cout << "  " << name << " = " << val << "\n";
+            }
+            if (!s.locals.empty()) {
+                std::cout << "  --- locals in " << (s.in_fn.empty() ? "<frame>" : s.in_fn) << " ---\n";
+                for (const auto& [name, val] : s.locals) {
+                    std::cout << "  " << name << " = " << val << "\n";
+                }
             }
             continue;
         }
@@ -244,8 +275,9 @@ inline int run_replay_repl(const ReplayTrace& t) {
                 if (val.empty()) continue;
                 if (val == prev) continue; // only show changes
                 std::cout << "  step " << step.index
-                          << " line=" << step.line << ":" << step.col
-                          << ":  " << name << " = " << val << "\n";
+                          << " line=" << step.line << ":" << step.col;
+                if (!step.in_fn.empty()) std::cout << " in=" << step.in_fn;
+                std::cout << ":  " << name << " = " << val << "\n";
                 prev = val;
                 any = true;
             }
@@ -279,13 +311,16 @@ inline int run_replay_repl(const ReplayTrace& t) {
             for (size_t k = 2; k < tokens.size(); ++k) needle += " " + tokens[k];
             int found = -1;
             for (int i = cur; i < (int)t.steps.size(); ++i) {
-                for (const auto& [n, v] : t.steps[i].vars) {
-                    if (v.find(needle) != std::string::npos
-                     || n.find(needle) != std::string::npos) {
-                        found = i; break;
+                auto scan = [&](const std::vector<std::pair<std::string,std::string>>& bs) {
+                    for (const auto& [n, v] : bs) {
+                        if (v.find(needle) != std::string::npos
+                         || n.find(needle) != std::string::npos) return true;
                     }
+                    return false;
+                };
+                if (scan(t.steps[i].vars) || scan(t.steps[i].locals)) {
+                    found = i; break;
                 }
-                if (found >= 0) break;
             }
             if (found < 0) std::cout << "no step containing '" << needle << "' from here on\n";
             else { cur = found; std::cout << "jumped to step " << t.steps[cur].index << "\n"; }

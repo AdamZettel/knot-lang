@@ -454,6 +454,82 @@ def rk4(f, t0, y0, t1, n=100) {
 # Optimization
 # ===================================================================
 
+# ===================================================================
+# Testing helpers (used inside `test "name" { ... }` blocks)
+# ===================================================================
+#
+# Each helper raises (via panic) on failure; --test catches the panic,
+# marks the test failed, and prints the failing line and message. On
+# success they're silent.
+
+def assert(cond) {
+    "Fail the current test if cond is falsy."
+    if not cond {
+        panic("assertion failed")
+    }
+    return 0
+}
+
+def assert_msg(cond, msg) {
+    "Fail the current test with `msg` if cond is falsy."
+    if not cond {
+        panic(msg)
+    }
+    return 0
+}
+
+def assert_eq(a, b) {
+    "Fail unless a == b. Works for nums, bools, strings; vec/mat compare
+     as identity (use assert_near / assert_mat_near for those)."
+    if a == b {
+        return 0
+    }
+    panic(format("assert_eq failed: %s != %s", str(a), str(b)))
+}
+
+def assert_near(a, b, tol=1e-10) {
+    "Fail unless |a - b| <= tol. For numeric tolerance comparison."
+    d = a - b
+    if d < 0 { d = -d }
+    if d <= tol {
+        return 0
+    }
+    panic(format("assert_near failed: %s vs %s (diff %g > tol %g)",
+                 str(a), str(b), d, tol))
+}
+
+def assert_mat_near(A, B, tol=1e-10) {
+    "Fail unless max(|A[i,j] - B[i,j]|) <= tol over the whole matrix.
+     Shapes must match; a shape mismatch is a separate failure."
+    ra = rows(A)
+    ca = cols(A)
+    rb = rows(B)
+    cb = cols(B)
+    if ra != rb or ca != cb {
+        panic(format("assert_mat_near: shape mismatch (%dx%d vs %dx%d)",
+                     ra, ca, rb, cb))
+    }
+    worst = 0.0
+    wi = 0
+    wj = 0
+    for i to ra {
+        for j to ca {
+            d = at(A, i, j) - at(B, i, j)
+            if d < 0 { d = -d }
+            if d > worst {
+                worst = d
+                wi = i
+                wj = j
+            }
+        }
+    }
+    if worst <= tol {
+        return 0
+    }
+    panic(format("assert_mat_near failed: worst diff %g at (%d,%d), tol %g",
+                 worst, wi, wj, tol))
+}
+
 def golden_section(f, a, b, tol=1e-10, max_iter=200) {
     "Golden-section search for the minimum of a unimodal f on [a, b]."
     phi = (sqrt(5) - 1) / 2

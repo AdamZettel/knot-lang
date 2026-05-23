@@ -67,11 +67,11 @@ public:
         if (trace_out) {
             *trace_out << "# knot trace v1\n";
             *trace_out << "# events (one per line, in execution order):\n";
-            *trace_out << "#   STEP <n> line=<L>:<C>           -- a statement just finished\n";
-            *trace_out << "#     <name> = <value>              -- one indented line per global\n";
-            *trace_out << "#   CALL <fname>(<args>) at <L>:<C> -- entered a user-defined fn\n";
-            *trace_out << "#   RET  <fname> -> <value>         -- returned from a user-defined fn\n";
-            *trace_out << "# v1 only captures globals; function-local scopes not yet traced.\n";
+            *trace_out << "#   STEP <n> line=<L>:<C> [in=<fname>]  -- a statement just finished\n";
+            *trace_out << "#     <name> = <value>                  -- one per global\n";
+            *trace_out << "#     LOCAL <name> = <value>            -- one per local in current frame\n";
+            *trace_out << "#   CALL <fname>(<args>) at <L>:<C>     -- entered a user-defined fn\n";
+            *trace_out << "#   RET  <fname> -> <value>             -- returned from a user-defined fn\n";
         }
         try {
             run_block(program, globals);
@@ -80,6 +80,64 @@ public:
         } catch (const ContinueSignal& c) {
             throw Diag(c.span, "'continue' is not inside a loop");
         }
+    }
+
+    // --test mode entry point. Two-pass:
+    //   1. Execute non-test top-level statements once. This sets up def's,
+    //      stdlib-derived globals, etc. TestDecl statements are no-ops here.
+    //   2. For each top-level `test "name" { body }`, run body in a fresh
+    //      child scope of globals so per-test bindings don't leak.
+    //
+    // Each test passes iff its body runs to completion without throwing a
+    // Diag (from panic() / assert*) or any other uncaught signal. We print
+    // a per-test PASS/FAIL line plus a summary line that the unit-test
+    // runner shell script parses. Returns the failure count.
+    int run_tests(const std::vector<StmtPtr>& program, const std::string& display_name) {
+        try {
+            run_block(program, globals);
+        } catch (const BreakSignal& b) {
+            throw Diag(b.span, "'break' is not inside a loop");
+        } catch (const ContinueSignal& c) {
+            throw Diag(c.span, "'continue' is not inside a loop");
+        }
+
+        int passed = 0;
+        int failed = 0;
+        for (const auto& stmt : program) {
+            if (stmt->kind != StmtKind::TestDecl) continue;
+            const std::string& name = stmt->name;
+            auto sub = std::make_shared<Env>(globals);
+            try {
+                run_block(stmt->body, sub);
+                std::cout << "  PASS  " << name << "\n";
+                ++passed;
+            } catch (const Diag& d) {
+                std::cout << "  FAIL  " << name << "\n";
+                std::cout << "        line " << d.span.line << ":" << d.span.col
+                          << ": " << d.what() << "\n";
+                ++failed;
+            } catch (const ReturnSignal&) {
+                // A bare `return` inside a test block: treat as pass.
+                std::cout << "  PASS  " << name << "\n";
+                ++passed;
+            } catch (const BreakSignal&) {
+                std::cout << "  FAIL  " << name << "\n";
+                std::cout << "        'break' is not inside a loop\n";
+                ++failed;
+            } catch (const ContinueSignal&) {
+                std::cout << "  FAIL  " << name << "\n";
+                std::cout << "        'continue' is not inside a loop\n";
+                ++failed;
+            } catch (const std::exception& e) {
+                std::cout << "  FAIL  " << name << "\n";
+                std::cout << "        " << e.what() << "\n";
+                ++failed;
+            }
+        }
+        // Summary line. The run_unit_tests.sh script parses this format.
+        std::cout << display_name << ": " << passed << " passed, "
+                  << failed << " failed\n";
+        return failed;
     }
 
     // Step-mode controls. Set before calling run().
@@ -101,6 +159,10 @@ private:
     bool record_mode = false;
     std::ostream* trace_out = nullptr;
     size_t snapshot_index = 0;
+    // Names of currently-executing user-defined functions, in call order.
+    // Used by snapshot() to label STEP blocks with `in=<fname>` and by
+    // emit_call/emit_ret to push/pop. Empty means we're at top level.
+    std::vector<std::string> fn_stack;
     // Keys that have already been shown this run. Used to suppress duplicate
     // annotation printing in tight loops.
     std::unordered_set<std::string> seen_annotations;
@@ -126,7 +188,7 @@ private:
         if (!step_mode || annotations.empty()) {
             for (const auto& s : body) {
                 exec(*s, env);
-                if (record_mode) snapshot(*s);
+                if (record_mode) snapshot(*s, env);
             }
             return;
         }
@@ -146,12 +208,12 @@ private:
                 print_annotation(key, hit.desc);
                 for (int k = 0; k < hit.consumed; ++k) {
                     exec(*body[i + k], env);
-                    if (record_mode) snapshot(*body[i + k]);
+                    if (record_mode) snapshot(*body[i + k], env);
                 }
                 i += hit.consumed;
             } else {
                 exec(*body[i], env);
-                if (record_mode) snapshot(*body[i]);
+                if (record_mode) snapshot(*body[i], env);
                 ++i;
             }
         }
@@ -161,6 +223,7 @@ private:
     // entered. Builtins are not logged -- they're "leaves" of the call
     // graph and logging every print()/at()/sqrt() would drown the signal.
     void emit_call(const std::string& name, const std::vector<Value>& args, Span site) {
+        fn_stack.push_back(name);
         if (!trace_out) return;
         auto& out = *trace_out;
         out << "CALL " << name << "(";
@@ -177,22 +240,35 @@ private:
     // uncaught exception -- in that case the trace will show an unmatched
     // CALL, which is itself useful information ("crashed inside f").
     void emit_ret(const std::string& name, const Value& value) {
+        if (!fn_stack.empty()) fn_stack.pop_back();
         if (!trace_out) return;
         *trace_out << "RET " << name << " -> " << format_value(value) << "\n";
     }
 
-    // Write a snapshot of globals to the trace stream after a statement
-    // has just finished executing. v1 format -- human-readable, one STEP
-    // block per statement, sorted variable names for determinism. Function
-    // and builtin bindings are excluded (they don't change, and printing
-    // them every step would drown the signal).
-    void snapshot(const Stmt& s) {
+    // Write a snapshot of program state to the trace stream after a
+    // statement has finished executing. Captures both globals and the
+    // currently-active function-local scopes.
+    //
+    // Format (extending v1): each STEP block is
+    //   STEP <n> line=<L>:<C> [in=<fname>]
+    //     name = value           -- one per global
+    //     LOCAL name = value     -- one per local in the current call frame
+    //
+    // The local walk starts from the env passed in (the statement's
+    // current scope) and proceeds up the parent chain. The first
+    // occurrence of each name wins (innermost shadows outer), and we
+    // stop just before reaching `globals` so we don't double-print
+    // globals as locals. Sorted-name iteration so traces are byte-stable
+    // across runs with the same source.
+    void snapshot(const Stmt& s, EnvPtr env) {
         if (!trace_out) return;
         auto& out = *trace_out;
         out << "STEP " << snapshot_index
-            << " line=" << s.span.line << ":" << s.span.col << "\n";
-        // Sorted iteration so two runs with the same source produce
-        // byte-identical traces (useful for regression testing).
+            << " line=" << s.span.line << ":" << s.span.col;
+        if (!fn_stack.empty()) out << " in=" << fn_stack.back();
+        out << "\n";
+
+        // Globals first.
         std::vector<std::string> names;
         names.reserve(globals->bindings().size());
         for (const auto& [name, val] : globals->bindings()) {
@@ -204,6 +280,30 @@ private:
             const Value& val = globals->bindings().at(name);
             out << "  " << name << " = " << format_value(val) << "\n";
         }
+
+        // Locals from the env chain, skipping globals. Walk innermost
+        // outward; first occurrence of each name wins.
+        if (env && env.get() != globals.get()) {
+            std::unordered_map<std::string, Value> locals;
+            EnvPtr e = env;
+            while (e && e.get() != globals.get()) {
+                for (const auto& [name, val] : e->bindings()) {
+                    if (val.is_fn() || val.is_builtin()) continue;
+                    if (locals.find(name) != locals.end()) continue; // shadowed
+                    locals[name] = val;
+                }
+                e = e->parent;
+            }
+            std::vector<std::string> local_names;
+            local_names.reserve(locals.size());
+            for (const auto& [name, _] : locals) local_names.push_back(name);
+            std::sort(local_names.begin(), local_names.end());
+            for (const auto& name : local_names) {
+                out << "  LOCAL " << name << " = "
+                    << format_value(locals.at(name)) << "\n";
+            }
+        }
+
         ++snapshot_index;
     }
 
@@ -400,6 +500,11 @@ private:
             }
             case StmtKind::Break:    throw BreakSignal{s.span};
             case StmtKind::Continue: throw ContinueSignal{s.span};
+            case StmtKind::TestDecl: {
+                // Under normal execution, `test "name" { ... }` is a no-op.
+                // The body is only executed by run_tests() under --test mode.
+                return;
+            }
         }
     }
 
@@ -1064,6 +1169,21 @@ inline Value b_input(const std::vector<Value>&, Span) {
 // Builtin replacement for the removed `print` statement keyword. Accepts any
 // number of args; prints them space-separated, then a newline. With zero
 // args it just prints a newline (useful for blank lines).
+// panic(msg_str) -- abort the current test or program with `msg_str`.
+// The thrown Diag's span is the call site, so failure messages point at
+// the user's source. The assert*() helpers in stdlib.knot all go through
+// this so they share a single failure path.
+inline Value b_panic(const std::vector<Value>& args, Span s) {
+    std::string msg = "panic";
+    if (args.size() == 1) {
+        if (args[0].is_str()) msg = args[0].as_str();
+        else                  msg = std::string("panic: expected string, got ") + args[0].type_name();
+    } else if (args.size() > 1) {
+        throw Diag(s, "panic(msg): expected 0 or 1 string args, got " + std::to_string(args.size()));
+    }
+    throw Diag(s, msg);
+}
+
 inline Value b_print(const std::vector<Value>& args, Span) {
     for (size_t i = 0; i < args.size(); ++i) {
         if (i) std::cout << ' ';
@@ -1341,6 +1461,7 @@ inline void Interpreter::register_builtins() {
     };
     reg("input",     builtins::b_input);
     reg("print",     builtins::b_print);
+    reg("panic",     builtins::b_panic);
     reg("at",        builtins::b_at);
     reg("set",       builtins::b_set);
     reg("append",    builtins::b_append);

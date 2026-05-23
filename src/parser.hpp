@@ -64,6 +64,7 @@ private:
         if (check(Tok::Return)) return parse_return();
         if (check(Tok::Break))  return parse_break();
         if (check(Tok::Continue)) return parse_continue();
+        if (check(Tok::Test))   return parse_test();
         if (check(Tok::LBrace)) return parse_block();
 
         // Expression statement, plain assignment, or compound assignment.
@@ -298,6 +299,19 @@ private:
         ++pos; // 'continue'
         expect_terminator("continue");
         return std::make_unique<Stmt>(StmtKind::Continue, start);
+    }
+
+    // test "name" { body }    -- a named, isolated test block. Collected and
+    // run by `--test`; skipped (no-op) under normal --interp or --exec.
+    StmtPtr parse_test() {
+        Span start = cur().span;
+        ++pos; // 'test'
+        const Token& name = expect(Tok::String, "string after 'test' (the test name)");
+        std::vector<StmtPtr> body = parse_block_body();
+        auto s = std::make_unique<Stmt>(StmtKind::TestDecl, start);
+        s->name = name.text;
+        s->body = std::move(body);
+        return s;
     }
 
     StmtPtr parse_block() {

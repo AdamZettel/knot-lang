@@ -72,6 +72,7 @@ enum class StmtKind {
     Return,     // return expr;
     Break,      // break;     (exits the nearest enclosing for/while/loop)
     Continue,   // continue;  (skips to the next iteration of same)
+    TestDecl,   // test "name" { body }   (collected by --test; no-op otherwise)
 };
 
 // For-statement form. The parser decides which one at parse time based on

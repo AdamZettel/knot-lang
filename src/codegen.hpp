@@ -941,6 +941,13 @@ private:
                 // one here, it's a nested def, which v1 doesn't support.
                 fail(s.span, "nested function definitions not supported in --cc v1");
             }
+            case StmtKind::TestDecl: {
+                // Test blocks are only meaningful under --test (--interp).
+                // Under --exec they compile to nothing, the same as a
+                // suppressed dead-code branch. The body still has to be
+                // well-formed knot, but it isn't lowered.
+                return;
+            }
         }
     }
 

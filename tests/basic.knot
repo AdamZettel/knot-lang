@@ -1,0 +1,59 @@
+# Basic assertion-helper coverage. If these regress, every other test in
+# the suite is suspect, so they sit first in the sort order.
+
+test "assert true is silent" {
+    assert(True)
+    assert(1 < 2)
+    assert(1 == 1)
+}
+
+test "assert_msg passes through cond" {
+    assert_msg(True, "should not appear")
+    assert_msg(2 + 2 == 4, "arithmetic broken")
+}
+
+test "assert_eq num self" {
+    assert_eq(0, 0)
+    assert_eq(-3, -3)
+    assert_eq(2.5, 2.5)
+}
+
+test "assert_eq string self" {
+    assert_eq("hello", "hello")
+    assert_eq("", "")
+}
+
+test "assert_eq bool self" {
+    assert_eq(True, True)
+    assert_eq(False, False)
+}
+
+test "assert_near zero diff" {
+    assert_near(0.0, 0.0, 0.0)
+    assert_near(7.0, 7.0)
+    assert_near(-1.5, -1.5)
+}
+
+test "assert_near small diff inside tol" {
+    assert_near(1.0, 1.0 + 1e-12, 1e-10)
+    assert_near(0.1 + 0.2, 0.3, 1e-9)
+}
+
+test "assert_near sign symmetry" {
+    # Helper has to take absolute value; both directions of error count.
+    assert_near(1.0, 1.0 + 1e-13, 1e-10)
+    assert_near(1.0, 1.0 - 1e-13, 1e-10)
+}
+
+test "assert_mat_near identical matrices" {
+    A = eye(3)
+    B = eye(3)
+    assert_mat_near(A, B)
+}
+
+test "assert_mat_near small perturbation" {
+    A = zeros(2, 2)
+    B = zeros(2, 2)
+    set(B, 0, 0, 1e-14)
+    assert_mat_near(A, B, 1e-10)
+}

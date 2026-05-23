@@ -1,0 +1,76 @@
+# Sanity tests for the arithmetic primitives. None of this should be
+# surprising; the value is the regression net.
+
+test "integer addition and subtraction" {
+    assert_eq(1 + 2, 3)
+    assert_eq(10 - 7, 3)
+    assert_eq(0 + 0, 0)
+}
+
+test "integer multiplication and division" {
+    assert_eq(6 * 7, 42)
+    # Knot division is truthful: integer literals stay integer-valued
+    # only as long as the result is exact. Use assert_near at boundaries.
+    assert_eq(10 / 5, 2)
+    assert_near(7.0 / 2.0, 3.5)
+}
+
+test "modulo on positive ints" {
+    assert_eq(10 % 3, 1)
+    assert_eq(9 % 3, 0)
+    assert_eq(0 % 5, 0)
+}
+
+test "unary minus" {
+    assert_eq(-5, 0 - 5)
+    assert_eq(-(-3), 3)
+    assert_near(-1.5 * -2.0, 3.0)
+}
+
+test "comparison operators" {
+    assert(1 < 2)
+    assert(2 <= 2)
+    assert(3 > 2)
+    assert(3 >= 3)
+    assert(1 == 1)
+    assert(1 != 2)
+}
+
+test "logical and / or / not" {
+    assert(True and True)
+    assert(True or False)
+    assert(not False)
+    assert_eq(False and True, False)
+    assert_eq(False or False, False)
+}
+
+test "exp and log inverse" {
+    assert_near(log(exp(1.0)), 1.0)
+    assert_near(exp(log(2.5)), 2.5)
+}
+
+test "sqrt of perfect squares" {
+    assert_eq(sqrt(0.0), 0.0)
+    assert_eq(sqrt(1.0), 1.0)
+    assert_near(sqrt(2.0) * sqrt(2.0), 2.0)
+    assert_near(sqrt(9.0), 3.0)
+}
+
+test "abs on signed nums" {
+    assert_eq(abs(0.0), 0.0)
+    assert_eq(abs(5.0), 5.0)
+    assert_eq(abs(-5.0), 5.0)
+}
+
+test "sin and cos at canonical angles" {
+    pi = 3.14159265358979
+    assert_near(sin(0.0), 0.0, 1e-10)
+    assert_near(cos(0.0), 1.0, 1e-10)
+    assert_near(sin(pi), 0.0, 1e-10)
+    assert_near(cos(pi), -1.0, 1e-10)
+}
+
+test "operator precedence: * binds tighter than +" {
+    assert_eq(2 + 3 * 4, 14)
+    assert_eq((2 + 3) * 4, 20)
+}
