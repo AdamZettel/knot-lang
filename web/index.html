@@ -5,9 +5,8 @@
   click Run (or hit Cmd/Ctrl+Enter).
 
   No build step. No bundler. No framework. The whole thing is one
-  textarea, one button, one <pre>, and a dropdown of canned examples.
-  If you want a fancier editor (Monaco, CodeMirror) drop it in --
-  everything else here keeps working.
+  HTML file: CodeMirror (CDN) for syntax highlighting on the source,
+  Plotly (CDN) for chart rendering, and the WASM-compiled interp.
 
   Run knot.js is fetched relative to this page, so serve over HTTP:
     python3 -m http.server 8000 --directory web
@@ -18,6 +17,18 @@
 <head>
 <meta charset="utf-8">
 <title>Knot — playground</title>
+<!-- Plotly is loaded from CDN. ~3MB, served gzipped; cached across
+     reloads. Used to render `plot(x, y)` calls from knot programs. -->
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+<!-- CodeMirror 5 + a small simple-mode grammar for knot. CM5 is ~250KB
+     total (core + theme + simple-mode addon); CDN-cached. Picked CM5
+     over CM6 because the simple-mode addon takes a regex-table that
+     fits in this file; no build step. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/ayu-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/simple.min.js"></script>
 <style>
   :root {
     --bg: #1a1a1a;
@@ -88,6 +99,36 @@
     min-height: 0;
   }
   main > section:first-child { border-right: 1px solid var(--border); }
+
+  /* The right pane is split vertically: a plot area on top, text
+     output below. When there are no plots, the plot area collapses
+     to a tidy "no plots yet" placeholder so the text panel takes the
+     full height. */
+  .right { display: flex; flex-direction: column; min-height: 0; }
+  #plot-wrap {
+    flex: 1 1 50%;
+    min-height: 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+  #plot-wrap.empty { flex: 0 0 auto; }
+  #plot {
+    flex: 1;
+    min-height: 0;
+    /* Plotly fills this. We force a non-zero height in JS so the
+       chart sizes correctly even before the first render. */
+  }
+  #plot-placeholder {
+    color: var(--dim);
+    font-size: 12px;
+    padding: 8px 14px;
+    text-align: center;
+    font-style: italic;
+  }
+  #text-wrap { flex: 1 1 50%; display: flex; flex-direction: column; min-height: 0; }
+  #plot-wrap.empty + #text-wrap { flex: 1 1 100%; }
   .label {
     padding: 6px 14px;
     color: var(--dim);
@@ -95,7 +136,32 @@
     background: var(--panel);
     border-bottom: 1px solid var(--border);
   }
-  #editor, #output {
+  /* CodeMirror fills the editor pane; theme is ayu-dark with our own
+     accent overrides so the syntax colors don't clash with the rest
+     of the page. */
+  #editor { flex: 1; min-height: 0; overflow: hidden; }
+  .CodeMirror {
+    height: 100% !important;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    background: var(--bg);
+  }
+  .CodeMirror-gutters { background: var(--bg); border-right: 1px solid var(--border); }
+  .CodeMirror-linenumber { color: #555; }
+  .cm-s-ayu-dark.CodeMirror, .cm-s-ayu-dark .CodeMirror-gutters { background: var(--bg); }
+  .cm-s-ayu-dark .cm-keyword  { color: #ff8f40; }
+  .cm-s-ayu-dark .cm-atom     { color: #d2a6ff; }
+  .cm-s-ayu-dark .cm-number   { color: #f29e74; }
+  .cm-s-ayu-dark .cm-string   { color: #aad94c; }
+  .cm-s-ayu-dark .cm-comment  { color: #5c6773; font-style: italic; }
+  .cm-s-ayu-dark .cm-builtin  { color: #59c2ff; }
+  .cm-s-ayu-dark .cm-variable { color: #cbccc6; }
+  .cm-s-ayu-dark .cm-def      { color: #ffb454; }
+  .cm-s-ayu-dark .cm-operator { color: #cbccc6; }
+  .cm-s-ayu-dark .cm-bracket  { color: #cbccc6; }
+
+  #output {
     flex: 1;
     margin: 0;
     padding: 12px 14px;
@@ -106,15 +172,9 @@
     line-height: 1.5;
     border: 0;
     outline: 0;
-    resize: none;
-    white-space: pre;
-    overflow: auto;
-    tab-size: 4;
-  }
-  #editor { white-space: pre; }
-  #output {
     white-space: pre-wrap;
     word-break: break-word;
+    overflow: auto;
   }
   #output.has-error { color: var(--error); }
   #status {
@@ -138,11 +198,18 @@
 <main>
   <section>
     <div class="label">source</div>
-    <textarea id="editor" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+    <div id="editor"></div>
   </section>
-  <section>
-    <div class="label">output (stdout + diagnostics)</div>
-    <pre id="output"></pre>
+  <section class="right">
+    <div id="plot-wrap" class="empty">
+      <div class="label">plot</div>
+      <div id="plot-placeholder">(no plots yet — call <code>plot(x, y)</code> to add one)</div>
+      <div id="plot"></div>
+    </div>
+    <div id="text-wrap">
+      <div class="label">output (stdout + diagnostics)</div>
+      <pre id="output"></pre>
+    </div>
   </section>
 </main>
 
@@ -235,30 +302,159 @@ lam = power_iter(M, v)
 print(lam)
 print(v)
 ` },
+
+  { name: "Plot: sin and cos",
+    src:
+`# Sample sin and cos over [0, 2 pi]. plot(x, y, "label") emits a
+# trace; multiple plot() calls overlay on the same axes.
+pi = 3.14159265358979
+n  = 400
+x  = linspace(0.0, 2.0 * pi, n)
+
+ys = zeros(n)
+yc = zeros(n)
+for i to n {
+    t = at(x, i)
+    set(ys, i, sin(t))
+    set(yc, i, cos(t))
+}
+
+plot(x, ys, "sin")
+plot(x, yc, "cos")
+` },
+
+  { name: "Plot: damped oscillator",
+    src:
+`# Solution to y'' + 0.4 y' + y = 0 over [0, 20], sampled. Demonstrates
+# a vec built from a closed-form expression plotted directly.
+n = 800
+x = linspace(0.0, 20.0, n)
+y = zeros(n)
+for i to n {
+    t = at(x, i)
+    set(y, i, exp(-0.2 * t) * cos(t))
+}
+plot(x, y, "exp(-0.2t) cos t")
+` },
+
+  { name: "Plot: stiff Euler vs implicit",
+    src:
+`# y' = -50 y, y(0) = 1, h = 0.05 -> explicit Euler blows up (|1 + h*lambda| = 1.5),
+# implicit Euler is unconditionally stable. Compare the three on the
+# same axes to see why explicit methods are dangerous in stiff systems.
+n = 30
+h = 0.05
+lam = 50.0   # decay rate; bigger -> stiffer
+
+t   = linspace(0.0, n * h, n + 1)
+exact = zeros(n + 1)
+expl  = zeros(n + 1)
+impl  = zeros(n + 1)
+
+set(exact, 0, 1.0)
+set(expl,  0, 1.0)
+set(impl,  0, 1.0)
+
+for i to n {
+    set(exact, i + 1, exp(-lam * at(t, i + 1)))
+    set(expl,  i + 1, at(expl, i) * (1.0 - h * lam))
+    set(impl,  i + 1, at(impl, i) / (1.0 + h * lam))
+}
+
+plot(t, exact, "exact")
+plot(t, impl,  "implicit Euler")
+plot(t, expl,  "explicit Euler (blows up)")
+` },
 ];
+
+// ---------------------------------------------------------------------
+// CodeMirror knot mode. Regex table is order-sensitive: longer/
+// more-specific patterns must come before short generic ones. Keyword
+// and builtin lists are kept in sync with src/token.hpp's keyword map
+// and src/interpreter.hpp's register_builtins() / stdlib/stdlib.knot.
+// When you add a keyword or builtin to the language, add it here too.
+// ---------------------------------------------------------------------
+CodeMirror.defineSimpleMode('knot', {
+  start: [
+    { regex: /#.*/,                                  token: 'comment' },
+    { regex: /"(?:[^"\\]|\\.)*"/,                    token: 'string' },
+    { regex: /-?\b\d+\.\d+(?:[eE][+-]?\d+)?\b/,      token: 'number' },
+    { regex: /-?\b\d+(?:[eE][+-]?\d+)?\b/,           token: 'number' },
+    { regex: /\b(True|False|None)\b/,                token: 'atom' },
+    // Hard keywords (anything in src/token.hpp's kw map).
+    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|and|or|not)\b/, token: 'keyword' },
+    // Function-definition name in `def NAME(` -- color as 'def' so it
+    // stands out from regular variable references.
+    { regex: /(?:(?<=\bdef\s))[a-zA-Z_][a-zA-Z0-9_]*/, token: 'def' },
+    // Built-in C++ functions (interpreter.hpp register_builtins) +
+    // stdlib functions (stdlib/stdlib.knot) merged into one list. CM
+    // doesn't have a separate "stdlib" class, so they share 'builtin'.
+    { regex: new RegExp('\\b(' + [
+        // C++ builtins
+        'input','print','panic','plot','at','set','append','format','num','str',
+        'len','rows','cols','zeros','ones','eye','dot','norm','matmul','transpose',
+        'sqrt','abs','sin','cos','exp','log','sort_vec',
+        'rng_seed','rng_uniform','rng_normal','read_csv','write_csv',
+        // stdlib
+        'sum','prod','mean','vmin','vmax','argmin','argmax','linspace','arange',
+        'reverse','fill','copy_vec','copy_mat','variance','std','floor_div',
+        'median','sort','trace','diag','lu','solve','power_iter',
+        'bisect','newton','trapezoid','simpson','rk4','golden_section',
+        'assert','assert_msg','assert_eq','assert_near','assert_mat_near',
+      ].join('|') + ')\\b'),                         token: 'builtin' },
+    { regex: /[a-zA-Z_][a-zA-Z0-9_]*/,               token: 'variable' },
+    { regex: /[+\-*\/%@=<>!&|^~]+/,                  token: 'operator' },
+    { regex: /[{}\[\]()]/,                           token: 'bracket' },
+  ],
+  meta: { lineComment: '#' },
+});
 
 // ---------------------------------------------------------------------
 // DOM hookup
 // ---------------------------------------------------------------------
-const ed     = document.getElementById('editor');
-const out    = document.getElementById('output');
-const runBtn = document.getElementById('run');
-const status = document.getElementById('status');
-const exSel  = document.getElementById('examples');
+const editorHost = document.getElementById('editor');
+const out        = document.getElementById('output');
+const runBtn     = document.getElementById('run');
+const status     = document.getElementById('status');
+const exSel      = document.getElementById('examples');
+const plotWrap   = document.getElementById('plot-wrap');
+const plotDiv    = document.getElementById('plot');
+const plotPh     = document.getElementById('plot-placeholder');
 
-// Populate the dropdown and seed the editor with the first example.
+// Initialize CodeMirror. extraKeys handles the shortcuts the old
+// textarea had: Cmd/Ctrl+Enter runs, Tab inserts spaces (CM's default
+// indentMore respects indentUnit=4 and indentWithTabs=false).
+const cm = CodeMirror(editorHost, {
+  value:           EXAMPLES[0].src,
+  mode:            'knot',
+  theme:           'ayu-dark',
+  lineNumbers:     true,
+  indentUnit:      4,
+  indentWithTabs:  false,
+  tabSize:         4,
+  smartIndent:     true,
+  matchBrackets:   true,
+  viewportMargin:  Infinity,
+  extraKeys: {
+    'Cmd-Enter':  () => { if (!runBtn.disabled) run(); },
+    'Ctrl-Enter': () => { if (!runBtn.disabled) run(); },
+    Tab:          'indentMore',
+    'Shift-Tab':  'indentLess',
+  },
+});
+
+// Populate the dropdown.
 for (const ex of EXAMPLES) {
   const opt = document.createElement('option');
   opt.value = ex.name;
   opt.textContent = ex.name;
   exSel.appendChild(opt);
 }
-ed.value = EXAMPLES[0].src;
 
 exSel.addEventListener('change', () => {
   const ex = EXAMPLES.find(e => e.name === exSel.value);
   if (ex) {
-    ed.value = ex.src;
+    cm.setValue(ex.src);
     out.textContent = '';
     out.classList.remove('has-error');
   }
@@ -296,6 +492,60 @@ async function bootstrap() {
   }
 }
 
+// Strip __knot_plot__ marker lines from `text`, returning {clean, traces}.
+// Each marker line is "__knot_plot__ {...json...}". Whatever's between
+// markers stays in the clean output.
+function extractPlots(text) {
+  const traces = [];
+  const cleanLines = [];
+  for (const line of text.split('\n')) {
+    if (line.startsWith('__knot_plot__ ')) {
+      const json = line.slice('__knot_plot__ '.length);
+      try {
+        const t = JSON.parse(json);
+        traces.push(t);
+      } catch (e) {
+        cleanLines.push('# plot parse error: ' + e.message);
+        cleanLines.push(line);
+      }
+    } else {
+      cleanLines.push(line);
+    }
+  }
+  return { clean: cleanLines.join('\n'), traces };
+}
+
+// Render the collected traces. Empty array -> hide plot, show placeholder.
+function renderPlot(traces) {
+  if (!traces.length) {
+    plotWrap.classList.add('empty');
+    plotDiv.innerHTML = '';
+    plotPh.style.display = '';
+    return;
+  }
+  plotWrap.classList.remove('empty');
+  plotPh.style.display = 'none';
+
+  const data = traces.map(t => ({
+    x: t.x,
+    y: t.y,
+    name: t.name || 'trace',
+    mode: 'lines',
+    type: 'scattergl',  // GL handles 100k+ points without lag
+  }));
+  const layout = {
+    paper_bgcolor: '#1a1a1a',
+    plot_bgcolor:  '#1a1a1a',
+    font:   { color: '#e8e8e8', family: 'inherit' },
+    margin: { l: 50, r: 20, t: 20, b: 40 },
+    xaxis:  { gridcolor: '#333', zerolinecolor: '#555' },
+    yaxis:  { gridcolor: '#333', zerolinecolor: '#555' },
+    legend: { bgcolor: 'rgba(0,0,0,0)' },
+  };
+  const config = { displaylogo: false, responsive: true };
+  Plotly.react(plotDiv, data, layout, config);
+}
+
 function run() {
   if (!mod) return;
   status.textContent = 'running...';
@@ -308,7 +558,7 @@ function run() {
     const t0 = performance.now();
     let text = '';
     try {
-      const ptr = mod.ccall('knot_run', 'number', ['string'], [ed.value]);
+      const ptr = mod.ccall('knot_run', 'number', ['string'], [cm.getValue()]);
       if (ptr === 0) {
         text = '<knot_run returned null -- out of memory?>';
       } else {
@@ -320,31 +570,33 @@ function run() {
       out.classList.add('has-error');
     }
     const dt = (performance.now() - t0).toFixed(1);
-    out.textContent = text || '<no output>';
-    // Heuristic: if the output mentions an error/diag prefix, color it.
-    if (/^error|--trap-nan|Diag|assert.*failed/m.test(text)) {
+
+    // Split plot markers off from human-readable text before rendering.
+    const { clean, traces } = extractPlots(text);
+    out.textContent = clean || '<no text output>';
+    renderPlot(traces);
+
+    // Heuristic: if the (text) output mentions an error/diag prefix,
+    // color it. We check `clean` only -- plot markers shouldn't trigger.
+    if (/^error|--trap-nan|Diag|assert.*failed/m.test(clean)) {
       out.classList.add('has-error');
     }
-    status.textContent = `ran in ${dt} ms`;
+    status.textContent = traces.length
+      ? `ran in ${dt} ms, ${traces.length} trace${traces.length>1?'s':''}`
+      : `ran in ${dt} ms`;
     status.classList.remove('busy');
   }, 0);
 }
 
 runBtn.addEventListener('click', run);
 
-// Cmd/Ctrl+Enter from anywhere in the editor.
-ed.addEventListener('keydown', (e) => {
+// Cmd/Ctrl+Enter works inside the CM editor via extraKeys (above).
+// Bind on document too so the shortcut still fires when focus is in
+// the dropdown or output pane.
+document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
     if (!runBtn.disabled) run();
-  }
-  // Tab inserts four spaces rather than moving focus.
-  if (e.key === 'Tab' && !e.shiftKey) {
-    e.preventDefault();
-    const s = ed.selectionStart;
-    const eend = ed.selectionEnd;
-    ed.value = ed.value.slice(0, s) + '    ' + ed.value.slice(eend);
-    ed.selectionStart = ed.selectionEnd = s + 4;
   }
 });
 

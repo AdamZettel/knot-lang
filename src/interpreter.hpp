@@ -1227,6 +1227,71 @@ inline Value b_len(const std::vector<Value>& args, Span s) {
     throw Diag(s, std::string("len: not defined for ") + args[0].type_name());
 }
 
+// Format a double as JSON. NaN/Inf become `null` (JSON has no IEEE
+// non-finites). Uses precision 17 so doubles round-trip exactly.
+inline std::string json_double(double d) {
+    if (std::isnan(d) || std::isinf(d)) return "null";
+    std::ostringstream os;
+    os.precision(17);
+    os << d;
+    return os.str();
+}
+
+// plot(x, y)         -- single trace from two equal-length vecs
+// plot(x, y, "name") -- as above with a trace label
+//
+// Emits a sentinel-prefixed JSON line to stdout. The browser playground
+// (web/index.html) intercepts every line starting with __knot_plot__,
+// pulls the JSON off the rest, and renders it via Plotly. Under the CLI
+// the line passes through as-is; downstream pipelines can grep it out
+// or, eventually, a plot_save() builtin can write it straight to disk.
+inline Value b_plot(const std::vector<Value>& args, Span s) {
+    if (args.size() < 2 || args.size() > 3)
+        throw Diag(s, "plot(x, y) or plot(x, y, name): expected 2 or 3 args");
+    if (!args[0].is_vec() || !args[1].is_vec())
+        throw Diag(s, "plot: x and y must both be vecs");
+    const Vec& x = args[0].as_vec();
+    const Vec& y = args[1].as_vec();
+    if (x.size() != y.size())
+        throw Diag(s, "plot: x and y must have the same length");
+    std::string name = "trace";
+    if (args.size() == 3) {
+        if (!args[2].is_str())
+            throw Diag(s, "plot: third arg (name) must be a string");
+        name = args[2].as_str();
+    }
+
+    // Escape only the bare minimum for a JSON string literal: backslash
+    // and double-quote. Knot strings are UTF-8 and we let everything
+    // else pass through (the playground decodes UTF-8 anyway).
+    auto json_str = [](const std::string& in) {
+        std::string out;
+        out.reserve(in.size() + 2);
+        out.push_back('"');
+        for (char c : in) {
+            if (c == '"' || c == '\\') { out.push_back('\\'); out.push_back(c); }
+            else                       { out.push_back(c); }
+        }
+        out.push_back('"');
+        return out;
+    };
+
+    std::ostringstream os;
+    os << "__knot_plot__ {\"name\":" << json_str(name) << ",\"x\":[";
+    for (size_t i = 0; i < x.size(); ++i) {
+        if (i) os << ",";
+        os << json_double(x[i]);
+    }
+    os << "],\"y\":[";
+    for (size_t i = 0; i < y.size(); ++i) {
+        if (i) os << ",";
+        os << json_double(y[i]);
+    }
+    os << "]}";
+    std::cout << os.str() << "\n";
+    return Value::nil();
+}
+
 inline Value b_rows(const std::vector<Value>& args, Span s) {
     if (args.size() != 1 || !args[0].is_mat()) throw Diag(s, "rows expects a mat");
     const auto& sp = std::get<std::shared_ptr<Mat>>(args[0].v);
@@ -1462,6 +1527,7 @@ inline void Interpreter::register_builtins() {
     reg("input",     builtins::b_input);
     reg("print",     builtins::b_print);
     reg("panic",     builtins::b_panic);
+    reg("plot",      builtins::b_plot);
     reg("at",        builtins::b_at);
     reg("set",       builtins::b_set);
     reg("append",    builtins::b_append);

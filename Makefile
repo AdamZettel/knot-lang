@@ -48,12 +48,14 @@ test: $(TARGET)
 #   -sEXPORTED_RUNTIME_METHODS  ccall + UTF8ToString for JS <-> C str
 wasm: $(WASM_SRC) $(HDRS) $(EMBED)
 	@mkdir -p web
-	$(EMCC) $(CXXFLAGS) -o $(WASM_OUT) $(WASM_SRC) \
+	$(EMCC) $(CXXFLAGS) -fexceptions -o $(WASM_OUT) $(WASM_SRC) \
+	  -fexceptions \
 	  -sSINGLE_FILE=1 \
 	  -sMODULARIZE=1 \
 	  -sEXPORT_NAME='Knot' \
 	  -sNO_EXIT_RUNTIME=1 \
 	  -sALLOW_MEMORY_GROWTH=1 \
+	  -sASSERTIONS=1 \
 	  -sEXPORTED_FUNCTIONS="['_knot_run','_knot_free','_malloc','_free']" \
 	  -sEXPORTED_RUNTIME_METHODS="['ccall','UTF8ToString']"
 
