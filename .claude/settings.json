@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./scripts/smoke_test.sh)",
+      "Bash(./scripts/run_unit_tests.sh)",
+      "Bash(make)",
+      "Bash(make test)",
+      "Bash(make clean)",
+      "Bash(make wasm)",
+      "Bash(./knot *)",
+      "Bash(cargo build)",
+      "Bash(cargo test)",
+      "Bash(cargo check)",
+      "Bash(cargo clippy)",
+      "Bash(command -v *)",
+      "Bash(lsof *)",
+      "Bash(emcc --version)"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+# The WASM-compiled interpreter is a build artifact. Source is in
+# src/wasm_entry.cpp + the rest of src/; produced by `make wasm`.
+knot.js
+knot.wasm

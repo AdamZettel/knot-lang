@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<!--
+  Knot playground. Loads the WASM-compiled interpreter (knot.js,
+  produced by `make wasm`) and runs whatever's in the editor when you
+  click Run (or hit Cmd/Ctrl+Enter).
+
+  No build step. No bundler. No framework. The whole thing is one
+  textarea, one button, one <pre>, and a dropdown of canned examples.
+  If you want a fancier editor (Monaco, CodeMirror) drop it in --
+  everything else here keeps working.
+
+  Run knot.js is fetched relative to this page, so serve over HTTP:
+    python3 -m http.server 8000 --directory web
+  then open http://localhost:8000.
+  Opening as a file:// URL won't work (CORS blocks the module fetch).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Knot — playground</title>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --fg: #e8e8e8;
+    --dim: #888;
+    --panel: #232323;
+    --border: #303030;
+    --accent: #7ec699;
+    --error: #f08080;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  header .dim { color: var(--dim); font-size: 12px; }
+  header .spacer { flex: 1; }
+  select, button {
+    font: inherit;
+    background: #2a2a2a;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #1a1a1a;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  button.primary:disabled {
+    background: #555;
+    border-color: #555;
+    color: #aaa;
+    cursor: not-allowed;
+  }
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 0;
+  }
+  main > section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  main > section:first-child { border-right: 1px solid var(--border); }
+  .label {
+    padding: 6px 14px;
+    color: var(--dim);
+    font-size: 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  #editor, #output {
+    flex: 1;
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    border: 0;
+    outline: 0;
+    resize: none;
+    white-space: pre;
+    overflow: auto;
+    tab-size: 4;
+  }
+  #editor { white-space: pre; }
+  #output {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #output.has-error { color: var(--error); }
+  #status {
+    font-size: 12px;
+    color: var(--dim);
+  }
+  #status.busy { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Knot</h1>
+  <span class="dim">tree-walking interpreter in your browser</span>
+  <span class="spacer"></span>
+  <select id="examples"><option value="">examples...</option></select>
+  <button id="run" class="primary" disabled>Run (⌘↵)</button>
+  <span id="status">loading wasm...</span>
+</header>
+
+<main>
+  <section>
+    <div class="label">source</div>
+    <textarea id="editor" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+  </section>
+  <section>
+    <div class="label">output (stdout + diagnostics)</div>
+    <pre id="output"></pre>
+  </section>
+</main>
+
+<script>
+// ---------------------------------------------------------------------
+// Examples. Kept inline so the page is self-contained -- no fetches at
+// load time. Add more by appending to this array.
+// ---------------------------------------------------------------------
+const EXAMPLES = [
+  { name: "Hello",
+    src: `# Welcome to Knot. Click Run, or press Cmd/Ctrl+Enter.\nprint("hello, world")\nprint(1 + 2 * 3)\n` },
+
+  { name: "Bisection (find sqrt(2))",
+    src:
+`def f(x) { return x * x - 2 }
+
+a = 0.0
+b = 2.0
+for _ to 30 {
+    m = (a + b) / 2
+    if f(m) > 0 { b = m } else { a = m }
+}
+print(m)
+` },
+
+  { name: "Matrix + vector",
+    src:
+`A = [[2.0, 0.0, 0.0],
+     [0.0, 3.0, 0.0],
+     [0.0, 0.0, 4.0]]
+x = [1.0, 1.0, 1.0]
+print(A @ x)
+print(sum([1.0, 2.0, 3.0, 4.0, 5.0]))
+` },
+
+  { name: "Tag detection (axis swap)",
+    src:
+`# Builds a 2x3, then indexes it [j, i] inside the natural for-loop.
+# Knot's shape tags catch the swap at runtime, before the indexing
+# would silently read garbage (or, in a square matrix, transpose).
+A = [[1, 2, 3], [4, 5, 6]]
+for i to rows(A) {
+    for j to cols(A) {
+        print(A[j, i])   # <- swapped on purpose
+    }
+}
+` },
+
+  { name: "NaN trap (sqrt(-1))",
+    src:
+`# Without --trap-nan the bad value would propagate to the print. Here
+# we exercise the same path: the runtime raises a Diag at sqrt's call
+# site rather than letting NaN poison everything downstream.
+x = sqrt(-1)
+print(x + 1)
+` },
+
+  { name: "Test blocks (run-via-knot)",
+    src:
+`# Test blocks are no-ops under the playground's default run (they
+# only fire under the CLI's --test mode), but they parse cleanly and
+# leave the rest of the file runnable.
+def square(x) { return x * x }
+
+test "squaring 3 gives 9" {
+    assert_eq(square(3), 9)
+}
+
+print(square(4))
+print(square(5))
+` },
+
+  { name: "Higher-order (simpson on sin)",
+    src:
+`# Composite Simpson's rule. Knot supports passing def's as values
+# (FnD_D fn-ptr), so simpson(sin, 0, pi, 100) just works.
+pi = 3.14159265358979
+print(simpson(sin, 0.0, pi, 100))   # integral of sin from 0 to pi == 2
+` },
+
+  { name: "Eigenvalue (power iteration)",
+    src:
+`# Diagonal-dominant 3x3. Power iteration converges to 4 (the largest
+# eigenvalue) and the eigenvector to the e3 direction.
+M = [[2.0, 0.0, 0.0],
+     [0.0, 3.0, 0.0],
+     [0.0, 0.0, 4.0]]
+v = zeros(3)
+lam = power_iter(M, v)
+print(lam)
+print(v)
+` },
+];
+
+// ---------------------------------------------------------------------
+// DOM hookup
+// ---------------------------------------------------------------------
+const ed     = document.getElementById('editor');
+const out    = document.getElementById('output');
+const runBtn = document.getElementById('run');
+const status = document.getElementById('status');
+const exSel  = document.getElementById('examples');
+
+// Populate the dropdown and seed the editor with the first example.
+for (const ex of EXAMPLES) {
+  const opt = document.createElement('option');
+  opt.value = ex.name;
+  opt.textContent = ex.name;
+  exSel.appendChild(opt);
+}
+ed.value = EXAMPLES[0].src;
+
+exSel.addEventListener('change', () => {
+  const ex = EXAMPLES.find(e => e.name === exSel.value);
+  if (ex) {
+    ed.value = ex.src;
+    out.textContent = '';
+    out.classList.remove('has-error');
+  }
+  // Don't leave the select pinned on a label; reset so picking the same
+  // entry again fires the change event.
+  exSel.value = '';
+});
+
+// ---------------------------------------------------------------------
+// WASM module load. Knot is the factory exposed by knot.js (via
+// MODULARIZE=1, EXPORT_NAME='Knot'). Resolves to an instance with
+// ccall/UTF8ToString and the exported C functions.
+// ---------------------------------------------------------------------
+let mod = null;
+
+async function bootstrap() {
+  try {
+    // knot.js sets globalThis.Knot when loaded as a classic script.
+    const factoryScript = document.createElement('script');
+    factoryScript.src = 'knot.js';
+    factoryScript.async = false;
+    document.head.appendChild(factoryScript);
+    await new Promise((res, rej) => {
+      factoryScript.onload = res;
+      factoryScript.onerror = () => rej(new Error('failed to load knot.js -- did you run `make wasm`?'));
+    });
+    mod = await Knot();
+    runBtn.disabled = false;
+    status.textContent = 'ready';
+    status.classList.remove('busy');
+  } catch (e) {
+    status.textContent = 'error';
+    out.textContent = String(e && e.message ? e.message : e);
+    out.classList.add('has-error');
+  }
+}
+
+function run() {
+  if (!mod) return;
+  status.textContent = 'running...';
+  status.classList.add('busy');
+  out.textContent = '';
+  out.classList.remove('has-error');
+
+  // Defer one tick so the "running..." status paints before a long run.
+  setTimeout(() => {
+    const t0 = performance.now();
+    let text = '';
+    try {
+      const ptr = mod.ccall('knot_run', 'number', ['string'], [ed.value]);
+      if (ptr === 0) {
+        text = '<knot_run returned null -- out of memory?>';
+      } else {
+        text = mod.UTF8ToString(ptr);
+        mod.ccall('knot_free', null, ['number'], [ptr]);
+      }
+    } catch (e) {
+      text = `host error: ${e && e.message ? e.message : e}`;
+      out.classList.add('has-error');
+    }
+    const dt = (performance.now() - t0).toFixed(1);
+    out.textContent = text || '<no output>';
+    // Heuristic: if the output mentions an error/diag prefix, color it.
+    if (/^error|--trap-nan|Diag|assert.*failed/m.test(text)) {
+      out.classList.add('has-error');
+    }
+    status.textContent = `ran in ${dt} ms`;
+    status.classList.remove('busy');
+  }, 0);
+}
+
+runBtn.addEventListener('click', run);
+
+// Cmd/Ctrl+Enter from anywhere in the editor.
+ed.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    if (!runBtn.disabled) run();
+  }
+  // Tab inserts four spaces rather than moving focus.
+  if (e.key === 'Tab' && !e.shiftKey) {
+    e.preventDefault();
+    const s = ed.selectionStart;
+    const eend = ed.selectionEnd;
+    ed.value = ed.value.slice(0, s) + '    ' + ed.value.slice(eend);
+    ed.selectionStart = ed.selectionEnd = s + 4;
+  }
+});
+
+bootstrap();
+</script>
+</body>
+</html>

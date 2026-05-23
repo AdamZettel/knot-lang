@@ -6,6 +6,13 @@ TARGET   := knot
 STDLIB   := stdlib/stdlib.knot
 EMBED    := src/stdlib_embedded.hpp
 
+# WASM build via emscripten. Compiles the tree-walking interpreter
+# (no --exec, no shelling out to cc) and exports knot_run / knot_free
+# as a single-file module the browser playground can load directly.
+EMCC      ?= emcc
+WASM_SRC  := src/wasm_entry.cpp
+WASM_OUT  := web/knot.js
+
 $(TARGET): $(SRC) $(HDRS) $(EMBED)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRC)
 
@@ -23,8 +30,35 @@ test: $(TARGET)
 	./scripts/smoke_test.sh
 	./scripts/run_unit_tests.sh
 
-clean:
-	rm -f $(TARGET) $(EMBED)
+# Browser playground. Run `make wasm` (requires `emcc` on PATH; install
+# with `brew install emscripten`) then serve the web/ dir over HTTP --
+# e.g. `python3 -m http.server 8000 --directory web` -- and open
+# http://localhost:8000.
+#
+# Flags:
+#   -O2                       optimization parity with the native build
+#   -sSINGLE_FILE=1           embed the wasm in the .js, so one fetch
+#   -sMODULARIZE=1            export Knot() factory rather than dirtying
+#                             the global scope on load
+#   -sEXPORT_NAME='Knot'      name of the factory the playground awaits
+#   -sNO_EXIT_RUNTIME=1       keep the runtime alive between calls
+#   -sALLOW_MEMORY_GROWTH=1   long traces / matrices don't OOM at the
+#                             default 16MB heap
+#   -sEXPORTED_FUNCTIONS       just the two we wrote + malloc/free
+#   -sEXPORTED_RUNTIME_METHODS  ccall + UTF8ToString for JS <-> C str
+wasm: $(WASM_SRC) $(HDRS) $(EMBED)
+	@mkdir -p web
+	$(EMCC) $(CXXFLAGS) -o $(WASM_OUT) $(WASM_SRC) \
+	  -sSINGLE_FILE=1 \
+	  -sMODULARIZE=1 \
+	  -sEXPORT_NAME='Knot' \
+	  -sNO_EXIT_RUNTIME=1 \
+	  -sALLOW_MEMORY_GROWTH=1 \
+	  -sEXPORTED_FUNCTIONS="['_knot_run','_knot_free','_malloc','_free']" \
+	  -sEXPORTED_RUNTIME_METHODS="['ccall','UTF8ToString']"
 
-.PHONY: clean test
+clean:
+	rm -f $(TARGET) $(EMBED) $(WASM_OUT)
+
+.PHONY: clean test wasm
 
