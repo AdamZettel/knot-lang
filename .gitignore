@@ -10,3 +10,7 @@ src/stdlib_embedded.hpp
 # Object files / debug bundles, in case anyone builds with different flags.
 *.o
 *.dSYM/
+
+# Local-only planning doc. Lives in the working tree so Claude sessions
+# can read it phase-by-phase, but doesn't ship in commits.
+docs/PLAN.md
