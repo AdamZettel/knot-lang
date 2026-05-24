@@ -28,11 +28,14 @@
 
 #include "ast.hpp"
 #include "diag.hpp"
+#include "parser.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <set>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace knot {
@@ -44,9 +47,9 @@ enum class CType {
     Mat,        // knot_mat
     Str,        // const char* (literals only; no concat in v1)
     Nil,        // void return / placeholder
-    FnD_D,      // double (*)(double)                  — bisect/newton/simpson/trapezoid/golden_section
-    FnDD_D,     // double (*)(double, double)          — rk4 (dydt = f(t, y))
-    FnDDD_D,    // double (*)(double, double, double)  — headroom for 3-arg numerical callbacks
+    FnD_D,      // knot_clos_d_d        — bisect/newton/simpson/trapezoid/golden_section, closure-capable
+    FnDD_D,     // knot_clos_dd_d       — rk4 (dydt = f(t, y))
+    FnDDD_D,    // knot_clos_ddd_d      — 3-arg numerical callbacks
     Unknown,    // could not infer; will likely cause a downstream error
 };
 
@@ -58,9 +61,9 @@ inline const char* ctype_name(CType t) {
         case CType::Mat:   return "knot_mat";
         case CType::Str:   return "const char*";
         case CType::Nil:   return "void";
-        case CType::FnD_D:   return "double (*)(double)";
-        case CType::FnDD_D:  return "double (*)(double, double)";
-        case CType::FnDDD_D: return "double (*)(double, double, double)";
+        case CType::FnD_D:   return "knot_clos_d_d";
+        case CType::FnDD_D:  return "knot_clos_dd_d";
+        case CType::FnDDD_D: return "knot_clos_ddd_d";
         case CType::Unknown: return "/*unknown*/ void*";
     }
     return "/*?*/";
@@ -207,6 +210,15 @@ private:
     };
     std::unordered_map<std::string, FnSig> fn_sigs_;
 
+    // Track (def_name, arity) pairs we've already emitted a closure thunk
+    // for; pass-by-value of a bare `def` to a higher-order function wraps
+    // it in a (fn-pointer, NULL env) closure literal that calls through
+    // one of these thunks.
+    std::set<std::pair<std::string, int>> emitted_thunks_;
+
+    // Anonymous FnExpr counter (used for `fn(x) -> EXPR` lifting).
+    int next_fnexpr_id_ = 0;
+
     // ---------------- Expression emission ----------------
 
     struct ExprResult {
@@ -272,25 +284,25 @@ private:
                 CType t = scope->lookup(e.str);
                 if (t == CType::Unknown) {
                     // Could be a user-defined function used as a first-class
-                    // value (passing it to bisect, newton, etc).  Only allow
-                    // this if the function has a (double) -> double signature,
-                    // which is the only first-class shape v1 supports.
+                    // value (passing it to bisect, newton, etc.).  We wrap
+                    // the bare `def` in an env-ignoring thunk and return a
+                    // closure literal (struct of {fn_ptr, NULL env}).
                     auto it = fn_sigs_.find(e.str);
                     if (it != fn_sigs_.end()) {
                         const FnSig& sig = it->second;
-                        // A user-defined fn is passable as a first-class value
-                        // only if it's a pure numerical signature of the form
-                        // (Num, Num, ...) -> Num, for arity 1..3.
                         bool all_num = sig.ret_type == CType::Num;
                         for (CType p : sig.param_types)
                             if (p != CType::Num) { all_num = false; break; }
-                        if (all_num) {
-                            switch (sig.param_types.size()) {
-                                case 1: return {e.str, CType::FnD_D};
-                                case 2: return {e.str, CType::FnDD_D};
-                                case 3: return {e.str, CType::FnDDD_D};
-                                default: break;
-                            }
+                        int arity = (int)sig.param_types.size();
+                        if (all_num && arity >= 1 && arity <= 3) {
+                            std::string thunk = emit_def_thunk(e.str, arity);
+                            CType ct = arity == 1 ? CType::FnD_D
+                                     : arity == 2 ? CType::FnDD_D
+                                     :              CType::FnDDD_D;
+                            std::string clos_t = ctype_name(ct);
+                            std::string code = "((" + clos_t + "){"
+                                + thunk + ", NULL})";
+                            return {code, ct};
                         }
                         fail(e.span, "function " + e.str
                             + " has signature that isn't passable in --cc v1"
@@ -372,8 +384,7 @@ private:
             case ExprKind::Slice:
                 fail(e.span, "slices not supported in --cc v1");
             case ExprKind::FnExpr:
-                fail(e.span, "anonymous `fn(x) -> EXPR` not supported in "
-                             "--exec yet; run this program with --interp");
+                return emit_fnexpr(e, scope);
         }
         fail(e.span, "internal: unhandled expr kind");
     }
@@ -449,24 +460,24 @@ private:
             fail(e.callee->span, "callee must be a name in --cc v1");
         const std::string& name = e.callee->str;
 
-        // If the callee is a *variable* of function-pointer type (e.g. a
-        // parameter `f` declared FnD_D / FnDD_D / FnDDD_D), emit a
-        // function-pointer call. The expected arity is the type's arity.
+        // If the callee is a *variable* of closure type (e.g. a parameter
+        // `f` declared FnD_D / FnDD_D / FnDDD_D), unpack the fat pointer
+        // and call: f.fn(f.env, arg0, arg1, ...).
         CType var_t = scope->lookup(name);
         if (var_t == CType::FnD_D || var_t == CType::FnDD_D || var_t == CType::FnDDD_D) {
             size_t expected = (var_t == CType::FnD_D)  ? 1
                             : (var_t == CType::FnDD_D) ? 2
                             : 3;
             if (e.elems.size() != expected)
-                fail(e.span, "function-pointer call needs "
+                fail(e.span, "closure call needs "
                     + std::to_string(expected) + " args, got "
                     + std::to_string(e.elems.size()));
-            std::string call = name + "(";
+            std::string call = name + ".fn(" + name + ".env";
             for (size_t i = 0; i < expected; ++i) {
                 ExprResult a = emit_expr(*e.elems[i], scope);
                 if (a.type != CType::Num)
-                    fail(e.elems[i]->span, "function-pointer arg must be num");
-                if (i) call += ", ";
+                    fail(e.elems[i]->span, "closure arg must be num");
+                call += ", ";
                 call += a.code;
             }
             call += ")";
@@ -1058,13 +1069,142 @@ private:
         fn_defs_ << "}\n\n";
     }
 
-    // Emit a C parameter or local declaration: "TYPE NAME" with the wart
-    // that function-pointer types need the name spliced into the middle:
-    // "double (*NAME)(double)" not "double (*)(double) NAME".
+    // Emit (once) a thunk that adapts a bare `def NAME(...)` to the
+    // closure-fat-pointer ABI: the thunk takes a void* env (ignored)
+    // plus the user-visible doubles, and forwards to NAME. Returns
+    // the thunk's C identifier. Writes to prelude_ so we don't
+    // interrupt whatever function body is currently being streamed
+    // to fn_defs_.
+    std::string emit_def_thunk(const std::string& def_name, int arity) {
+        std::string thunk_name = "__knot_thunk_" + def_name
+                               + "_a" + std::to_string(arity);
+        auto key = std::make_pair(def_name, arity);
+        if (emitted_thunks_.count(key)) return thunk_name;
+        emitted_thunks_.insert(key);
+        prelude_ << "static double " << thunk_name
+                 << "(void* __env";
+        for (int i = 0; i < arity; ++i) prelude_ << ", double __a" << i;
+        prelude_ << ") {\n    (void)__env;\n    return " << def_name << "(";
+        for (int i = 0; i < arity; ++i) {
+            if (i) prelude_ << ", ";
+            prelude_ << "__a" << i;
+        }
+        prelude_ << ");\n}\n\n";
+        return thunk_name;
+    }
+
+    // Emit a lifted top-level C function for `fn(x[, y, z]) -> EXPR`,
+    // plus the env struct that captures its free variables. Returns
+    // a knot_clos_X_X struct literal that wraps the lifted fn pointer
+    // and a heap-allocated env. v1 leaks the env -- numerical scripts
+    // run and terminate; arena allocation is v2.
+    ExprResult emit_fnexpr(const Expr& e, CScope* scope) {
+        if (!e.lhs)
+            fail(e.span, "FnExpr without body");
+        size_t arity = e.params.size();
+        if (arity < 1 || arity > 3)
+            fail(e.span, "fn(...) must take 1, 2 or 3 args in --exec");
+
+        // Free vars: idents in the body that aren't params or known fns.
+        std::vector<std::string> bound = e.params;
+        std::vector<std::string> frees;
+        Parser::collect_free_vars(*e.lhs, bound, frees);
+
+        // Each captured var must already have a type in the surrounding
+        // scope (for now we only support num captures; lifting matrices
+        // or vecs would require copying the struct fields by value, which
+        // is fine for the value types but unwise for vec/mat -- their
+        // contents live on the heap and the env holding a borrowed copy
+        // is fine, but the codegen below is num-only).
+        std::vector<std::pair<std::string, CType>> capture_info;
+        capture_info.reserve(frees.size());
+        for (const auto& f : frees) {
+            CType ft = scope->lookup(f);
+            if (ft == CType::Unknown) {
+                // Maybe a user-defined function or builtin; collect_free_vars
+                // is supposed to filter those, but in case it didn't, skip.
+                continue;
+            }
+            if (ft != CType::Num) {
+                fail(e.span,
+                     "captured variable '" + f + "' has non-num type ("
+                     + ctype_name(ft) + "); only num captures supported");
+            }
+            capture_info.push_back({f, ft});
+        }
+
+        int id = next_fnexpr_id_++;
+        std::string fn_name  = "__knot_fnexpr_" + std::to_string(id);
+        std::string env_name = "__knot_env_"    + std::to_string(id);
+        CType ct = arity == 1 ? CType::FnD_D
+                 : arity == 2 ? CType::FnDD_D
+                 :              CType::FnDDD_D;
+        std::string clos_t = ctype_name(ct);
+
+        // Emit env struct (or a 1-byte placeholder if there are no
+        // captures -- can't have a zero-size struct in standard C).
+        prelude_ << "struct " << env_name << " {";
+        if (capture_info.empty()) {
+            prelude_ << " char __pad;";
+        } else {
+            for (const auto& cap : capture_info) {
+                prelude_ << " double " << cap.first << ";";
+            }
+        }
+        prelude_ << " };\n";
+
+        // Emit the lifted function. Inside the body we declare locals
+        // (named to match the captures) initialized from env, so the
+        // emitter can use the param names verbatim when emitting the
+        // body expression.
+        prelude_ << "static double " << fn_name << "(void* __env_raw";
+        for (size_t i = 0; i < arity; ++i)
+            prelude_ << ", double " << e.params[i];
+        prelude_ << ") {\n";
+        prelude_ << "    struct " << env_name << "* __env = "
+                 << "(struct " << env_name << "*)__env_raw;\n";
+        if (capture_info.empty()) {
+            prelude_ << "    (void)__env;\n";
+        }
+        // The body emission needs to see params and captures as Num.
+        CScope body_scope; // top-level, captures + params only
+        for (size_t i = 0; i < arity; ++i)
+            body_scope.define(e.params[i], CType::Num);
+        for (const auto& cap : capture_info) {
+            body_scope.define(cap.first, CType::Num);
+            prelude_ << "    double " << cap.first
+                     << " = __env->" << cap.first << ";\n";
+        }
+        ExprResult body_res = emit_expr(*e.lhs, &body_scope);
+        if (body_res.type != CType::Num)
+            fail(e.span, "fn(...) -> EXPR must return num (got "
+                + std::string(ctype_name(body_res.type)) + ")");
+        prelude_ << "    return " << body_res.code << ";\n";
+        prelude_ << "}\n\n";
+
+        // At the call site, build the closure literal: function pointer
+        // plus heap-allocated env. We use a GCC statement-expression to
+        // pack the alloc + initialization + cast into one expression.
+        std::ostringstream o;
+        o << "((" << clos_t << "){" << fn_name << ", ";
+        if (capture_info.empty()) {
+            o << "NULL";
+        } else {
+            o << "({ struct " << env_name << "* __e = "
+              << "(struct " << env_name
+              << "*)malloc(sizeof(*__e));";
+            for (const auto& cap : capture_info) {
+                o << " __e->" << cap.first << " = "
+                  << cap.first << ";";
+            }
+            o << " (void*)__e; })";
+        }
+        o << "})";
+        return {o.str(), ct};
+    }
+
+    // Emit a C parameter or local declaration: "TYPE NAME".
     static std::string c_decl(CType t, const std::string& name) {
-        if (t == CType::FnD_D)   return "double (*" + name + ")(double)";
-        if (t == CType::FnDD_D)  return "double (*" + name + ")(double, double)";
-        if (t == CType::FnDDD_D) return "double (*" + name + ")(double, double, double)";
         return std::string(ctype_name(t)) + " " + name;
     }
     static int ctype_rank(CType t) {

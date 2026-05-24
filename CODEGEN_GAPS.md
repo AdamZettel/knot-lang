@@ -17,35 +17,6 @@ Entries are ordered by **priority**:
 
 ## high
 
-### `fn(x) -> EXPR` (FnExpr)
-
-**Surfaced by:** `examples/stress/03_slater_norm.knot`,
-`tests/fn_expr.knot`, any program using `take the integral of EXPR
-from A to B`, `take the root of EXPR starting at INIT`, or any
-closure passed to a higher-order stdlib function.
-
-**What happens:** the codegen emits
-
-    error: codegen: anonymous `fn(x) -> EXPR` not supported in
-    --exec yet; run this program with --interp
-
-at parse time. The program is rejected before any C is generated.
-
-**Workaround:** define the inner function as a top-level `def
-NAME(x) { return EXPR }` and pass `NAME` instead of `fn(x) ->
-EXPR`. Sidesteps the closure-capture entirely, since a top-level
-def has no surrounding environment to capture.
-
-**Fix sketch (Phase 9 in the plan):** introduce a fat-pointer
-closure ABI in the runtime. Each callable value is a `{fn ptr,
-env ptr}` pair. FnExpr compiles to a generated C function taking
-an `env*` plus the original parameters; the env struct is
-synthesized at codegen time from the free variables. Bare
-top-level defs wrap with a thunk that ignores env. Cost: ~250 LOC
-in `src/codegen.hpp` plus runtime helpers; the existing
-`FnD_D / FnDD_D / FnDDD_D` types in `src/codegen.hpp` are the
-starting point.
-
 ### Hadamard `*` and `/` between two vecs / mats
 
 **Surfaced by:** `examples/stress/04_linreg.knot` (worked around
@@ -160,24 +131,6 @@ unary-math builtins by name and dispatch on operand type --
 scalar -> single `knot_sin` call, vec -> a generated for-loop
 that fills an output vec. Same pattern for the binary `pow` /
 `atan2` if/when those need it. ~90 LOC.
-
-## low
-
-### `take`-phrase closure forms in `--exec`
-
-**Surfaced by:** any `take the integral of EXPR from A to B`,
-`take the root of EXPR starting at INIT` under `--exec`.
-
-**What happens:** the phrase desugars to a Call with a `fn(x) ->
-EXPR` callee, which hits the FnExpr gap above. The diagnostic
-text is the FnExpr one, not phrase-specific.
-
-**Workaround:** rewrite as a direct `simpson(named_fn, a, b)` or
-`bisect(named_fn, a, b)` call with a top-level `def` for the
-integrand.
-
-**Fix sketch:** automatic once FnExpr lowers. No phrase-specific
-work needed.
 
 ## non-issues
 

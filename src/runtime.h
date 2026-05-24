@@ -195,6 +195,31 @@ static inline void knot_print_newline(void) { putchar('\n'); }
 // would set this to 0 at startup.
 static int knot_narration_on = 1;
 
+// ---- Closures -----------------------------------------------------------
+// Numerical callbacks (the arg to simpson, bisect, rk4, etc.) are passed
+// as fat pointers: a function pointer plus a void* env. Bare top-level
+// `def`s get an env-ignoring thunk and a NULL env; `fn(x) -> EXPR`
+// captures its free variables into a heap-allocated env struct.
+//
+// One closure type per arity. The env-side of the function pointer is
+// always void*; the lifted function casts it to the concrete env-struct
+// type it knows about.
+
+typedef struct {
+    double (*fn)(void* env, double);
+    void*  env;
+} knot_clos_d_d;
+
+typedef struct {
+    double (*fn)(void* env, double, double);
+    void*  env;
+} knot_clos_dd_d;
+
+typedef struct {
+    double (*fn)(void* env, double, double, double);
+    void*  env;
+} knot_clos_ddd_d;
+
 // ---- Math forwards ------------------------------------------------------
 
 static inline double knot_abs(double x)  { return fabs(x); }

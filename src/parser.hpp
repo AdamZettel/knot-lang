@@ -684,6 +684,7 @@ private:
         return e;
     }
 
+public:
     // Walk an expression collecting identifier names that look like
     // free variables -- references to names that are NOT in the
     // built-in / stdlib known set. Used to derive the parameter name
@@ -696,6 +697,9 @@ private:
     // FnExpr parameter names shadow their references and are not
     // added to the free-var set. Order of first appearance is
     // preserved so error messages are predictable.
+    //
+    // Also used by codegen.hpp to lift `fn(x) -> EXPR` to a static
+    // C function plus an env struct of captured variables.
     static void collect_free_vars(const Expr& e,
                                   std::vector<std::string>& bound,
                                   std::vector<std::string>& out) {
@@ -757,6 +761,7 @@ private:
         }
     }
 
+private:
     // Wrap `body` as `fn(var) -> body`. Used by parse_phrase for
     // closure-shaped holes after picking the parameter via free-var
     // analysis.

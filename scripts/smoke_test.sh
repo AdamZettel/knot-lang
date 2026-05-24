@@ -399,8 +399,7 @@ echo "== stress tests =="
 # blocks. We run them with --test and check the summary line.
 # Parity check on the interp/exec output where the program doesn't
 # use features the codegen path doesn't lower yet.
-for f in examples/stress/01_*.knot examples/stress/02_*.knot \
-         examples/stress/04_*.knot examples/stress/05_*.knot; do
+for f in examples/stress/*.knot; do
     name=$(basename "$f" .knot)
     OUT=$(./knot --test --no-hints "$f" 2>&1)
     LAST=$(echo "$OUT" | tail -1)
@@ -422,17 +421,6 @@ for f in examples/stress/01_*.knot examples/stress/02_*.knot \
         FAIL=$((FAIL + 1))
     fi
 done
-# 03_slater_norm uses fn(r) -> EXPR closures; FnExpr isn't lowered
-# in --exec yet. Verify --test passes under --interp only.
-OUT=$(./knot --test --no-hints examples/stress/03_slater_norm.knot 2>&1)
-LAST=$(echo "$OUT" | tail -1)
-if echo "$LAST" | grep -q "0 failed"; then
-    echo "  PASS  03_slater_norm (--test, interp only)"
-    PASS=$((PASS + 1))
-else
-    echo "  FAIL  03_slater_norm (--test, interp only)"
-    FAIL=$((FAIL + 1))
-fi
 
 echo "== pathology library =="
 
