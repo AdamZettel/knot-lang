@@ -1,0 +1,175 @@
+# Coverage for the math-verb phrases (Phase 10c). Each phrase resolves
+# to either a new builtin (tan/asin/acos/atan/floor/ceil/round/pow/atan2)
+# or a new stdlib helper (normalize/project/orthogonalize/angle/dist/
+# numerical_derivative).
+
+# ---- Builtins: scalar -----------------------------------------------
+
+test "tan / asin / acos / atan at canonical points" {
+    pi = 3.14159265358979
+    assert_near(tan(0.0), 0.0)
+    assert_near(tan(pi / 4.0), 1.0, 1e-10)
+    assert_near(asin(1.0), pi / 2.0)
+    assert_near(acos(0.0), pi / 2.0)
+    assert_near(atan(1.0), pi / 4.0)
+    assert_near(atan2(1.0, 1.0), pi / 4.0)
+    assert_near(atan2(0.0, -1.0), pi)
+}
+
+test "pow agrees with sqrt and exp on the obvious cases" {
+    assert_eq(pow(2.0, 10.0), 1024.0)
+    assert_near(pow(4.0, 0.5), sqrt(4.0))
+    assert_near(pow(2.71828182845905, 2.0), exp(2.0), 1e-6)
+}
+
+test "floor / ceil / round on positive and negative" {
+    assert_eq(floor(3.7), 3.0)
+    assert_eq(floor(-0.5), -1.0)
+    assert_eq(ceil(3.2), 4.0)
+    assert_eq(ceil(-0.5), 0.0)
+    assert_eq(round(3.5), 4.0)
+    assert_eq(round(3.4), 3.0)
+    # std::round is half-away-from-zero, so -2.5 -> -3, not -2.
+    assert_eq(round(-2.5), -3.0)
+}
+
+# ---- Builtins: broadcasting over vec --------------------------------
+
+test "tan / floor / ceil / round broadcast" {
+    pi = 3.14159265358979
+    v = [0.0, pi / 4.0]
+    t = tan(v)
+    assert_near(at(t, 0), 0.0)
+    assert_near(at(t, 1), 1.0, 1e-10)
+
+    w = [1.2, 2.7, -0.5]
+    assert_eq(at(floor(w), 0), 1.0)
+    assert_eq(at(floor(w), 2), -1.0)
+    assert_eq(at(ceil(w), 1), 3.0)
+    assert_eq(at(round(w), 0), 1.0)
+}
+
+# ---- Stdlib: linear-algebra verbs ------------------------------------
+
+test "normalize gives a unit vector" {
+    v = [3.0, 4.0]
+    u = normalize(v)
+    assert_near(at(u, 0), 0.6)
+    assert_near(at(u, 1), 0.8)
+    assert_near(norm(u), 1.0)
+}
+
+test "normalize on zero vector returns zero (no NaN)" {
+    z = [0.0, 0.0, 0.0]
+    u = normalize(z)
+    assert_eq(at(u, 0), 0.0)
+    assert_eq(at(u, 2), 0.0)
+}
+
+test "project u onto v gives the parallel component" {
+    u = [3.0, 4.0]
+    v = [1.0, 0.0]
+    p = project(u, v)
+    # Projection onto the x-axis is just the x-component.
+    assert_near(at(p, 0), 3.0)
+    assert_near(at(p, 1), 0.0)
+}
+
+test "orthogonalize removes the parallel component" {
+    u = [3.0, 4.0]
+    against = [1.0, 0.0]
+    o = orthogonalize(u, against)
+    # u minus its x-component leaves only the y-component.
+    assert_near(at(o, 0), 0.0)
+    assert_near(at(o, 1), 4.0)
+    # Resulting vec is orthogonal to `against`.
+    assert_near(dot(o, against), 0.0)
+}
+
+test "angle between orthogonal vecs is pi/2" {
+    pi = 3.14159265358979
+    u = [1.0, 0.0]
+    v = [0.0, 1.0]
+    assert_near(angle(u, v), pi / 2.0)
+}
+
+test "angle between identical vecs is 0" {
+    u = [3.0, 4.0]
+    assert_near(angle(u, u), 0.0, 1e-7)
+}
+
+test "angle between antiparallel vecs is pi" {
+    pi = 3.14159265358979
+    u = [1.0, 0.0]
+    v = [-1.0, 0.0]
+    assert_near(angle(u, v), pi)
+}
+
+test "dist between (3,0) and (0,4) is 5" {
+    assert_eq(dist([3.0, 0.0], [0.0, 4.0]), 5.0)
+}
+
+test "numerical_derivative of x*x at 3 is ~6" {
+    f = fn(x) -> x * x
+    assert_near(numerical_derivative(f, 3.0), 6.0, 1e-5)
+}
+
+# ---- Phrases ---------------------------------------------------------
+
+test "take the projection of u onto v" {
+    u = [3.0, 4.0]
+    v = [1.0, 0.0]
+    p = take the projection of u onto v
+    assert_near(at(p, 0), 3.0)
+    assert_near(at(p, 1), 0.0)
+}
+
+test "take the unit vector along v" {
+    v = [3.0, 4.0]
+    u = take the unit vector along v
+    assert_near(at(u, 0), 0.6)
+    assert_near(at(u, 1), 0.8)
+}
+
+test "take the unit vector in the direction of v (synonym)" {
+    v = [0.0, 5.0, 0.0]
+    u = take the unit vector in the direction of v
+    assert_near(at(u, 1), 1.0)
+}
+
+test "take the angle between u and v" {
+    pi = 3.14159265358979
+    u = [1.0, 0.0]
+    v = [0.0, 1.0]
+    assert_near(take the angle between u and v, pi / 2.0)
+}
+
+test "take the distance from u to v / between u and v" {
+    u = [3.0, 0.0]
+    v = [0.0, 4.0]
+    assert_eq(take the distance from u to v, 5.0)
+    assert_eq(take the distance between u and v, 5.0)
+}
+
+test "take the tangent / arctangent / arcsine / arccosine" {
+    pi = 3.14159265358979
+    assert_near(take the tangent of pi / 4.0, 1.0, 1e-10)
+    assert_near(take the arctangent of 1.0, pi / 4.0)
+    assert_near(take the arcsine of 1.0, pi / 2.0)
+    assert_near(take the arccosine of 0.0, pi / 2.0)
+}
+
+test "take the floor / ceiling / nearest integer" {
+    assert_eq(take the floor of 3.7, 3.0)
+    assert_eq(take the ceiling of 3.2, 4.0)
+    assert_eq(take the nearest integer to 3.5, 4.0)
+}
+
+test "take the derivative of EXPR at POINT (closure-shaped)" {
+    # d/dx (x*x) at 3 = 6
+    assert_near(take the derivative of x*x at 3.0, 6.0, 1e-5)
+    # d/dx sin(x) at 0 = 1
+    assert_near(take the derivative of sin(x) at 0.0, 1.0, 1e-5)
+    # d/dx exp(x) at 1 = e
+    assert_near(take the derivative of exp(x) at 1.0, 2.71828, 1e-4)
+}

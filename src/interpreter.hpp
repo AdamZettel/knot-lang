@@ -1509,6 +1509,60 @@ inline Value b_log(const std::vector<Value>& args, Span s) {
         [](double x){ return std::log(x); }, /*trap=*/true);
 }
 
+inline Value b_tan(const std::vector<Value>& args, Span s) {
+    return apply_unary_broadcast(args, s, "tan",
+        [](double x){ return std::tan(x); }, /*trap=*/false);
+}
+
+inline Value b_asin(const std::vector<Value>& args, Span s) {
+    return apply_unary_broadcast(args, s, "asin",
+        [](double x){ return std::asin(x); }, /*trap=*/true);
+}
+
+inline Value b_acos(const std::vector<Value>& args, Span s) {
+    return apply_unary_broadcast(args, s, "acos",
+        [](double x){ return std::acos(x); }, /*trap=*/true);
+}
+
+inline Value b_atan(const std::vector<Value>& args, Span s) {
+    return apply_unary_broadcast(args, s, "atan",
+        [](double x){ return std::atan(x); }, /*trap=*/false);
+}
+
+inline Value b_floor(const std::vector<Value>& args, Span s) {
+    return apply_unary_broadcast(args, s, "floor",
+        [](double x){ return std::floor(x); }, /*trap=*/false);
+}
+
+inline Value b_ceil(const std::vector<Value>& args, Span s) {
+    return apply_unary_broadcast(args, s, "ceil",
+        [](double x){ return std::ceil(x); }, /*trap=*/false);
+}
+
+inline Value b_round(const std::vector<Value>& args, Span s) {
+    return apply_unary_broadcast(args, s, "round",
+        [](double x){ return std::round(x); }, /*trap=*/false);
+}
+
+// Two-argument atan(y, x) -- the quadrant-aware inverse tangent.
+// Num-only for v1; broadcasting over equal-length vecs is a natural
+// extension later.
+inline Value b_atan2(const std::vector<Value>& args, Span s) {
+    if (args.size() != 2 || !args[0].is_num() || !args[1].is_num())
+        throw Diag(s, "atan2(y, x): expected two nums");
+    return Value::num(std::atan2(args[0].as_num(), args[1].as_num()));
+}
+
+// pow(x, n) -- knot has no `**` operator. Accepts num base + num
+// exponent. Real exponents are allowed (so sqrt(x) == pow(x, 0.5)).
+inline Value b_pow(const std::vector<Value>& args, Span s) {
+    if (args.size() != 2 || !args[0].is_num() || !args[1].is_num())
+        throw Diag(s, "pow(x, n): expected two nums");
+    double r = std::pow(args[0].as_num(), args[1].as_num());
+    trap_check_finite(r, s, "pow");
+    return Value::num(r);
+}
+
 // ---- Extensions backed by C++ stdlib -----------------------------------
 // These map to the same names the transpiler emits, so the interpreter and
 // transpiler agree.
@@ -1651,8 +1705,17 @@ inline void Interpreter::register_builtins() {
     reg("abs",       builtins::b_abs);
     reg("sin",       builtins::b_sin);
     reg("cos",       builtins::b_cos);
+    reg("tan",       builtins::b_tan);
+    reg("asin",      builtins::b_asin);
+    reg("acos",      builtins::b_acos);
+    reg("atan",      builtins::b_atan);
+    reg("atan2",     builtins::b_atan2);
     reg("exp",       builtins::b_exp);
     reg("log",       builtins::b_log);
+    reg("pow",       builtins::b_pow);
+    reg("floor",     builtins::b_floor);
+    reg("ceil",      builtins::b_ceil);
+    reg("round",     builtins::b_round);
     // Extensions backed by C++ stdlib.
     reg("sort_vec",   builtins::b_sort_vec);
     reg("rng_seed",   builtins::b_rng_seed);

@@ -63,7 +63,10 @@ inline bool is_known_fn_name(const std::string& name) {
         "num", "str", "len", "rows", "cols",
         "zeros", "ones", "eye", "dot", "norm",
         "matmul", "transpose",
-        "sqrt", "abs", "sin", "cos", "exp", "log",
+        "sqrt", "abs", "sin", "cos", "tan",
+        "asin", "acos", "atan", "atan2",
+        "exp", "log", "pow",
+        "floor", "ceil", "round",
         "sort_vec",
         "rng_seed", "rng_uniform", "rng_normal",
         "read_csv", "write_csv",
@@ -73,6 +76,8 @@ inline bool is_known_fn_name(const std::string& name) {
         "reverse", "fill", "copy_vec", "copy_mat",
         "variance", "std", "floor_div", "median", "sort",
         "trace", "diag", "lu", "solve", "power_iter",
+        "normalize", "project", "orthogonalize", "angle", "dist",
+        "numerical_derivative",
         "bisect", "newton", "newton_numeric",
         "trapezoid", "simpson", "rk4", "golden_section",
         "assert", "assert_msg", "assert_eq",
@@ -129,6 +134,23 @@ inline const std::vector<PhrasePattern>& phrase_table() {
 
         // ---- Linear algebra -------------------------------------
         {{"the", "matrix", "product", "of", "_", "and", "_"}, "matmul", "matmul(?, ?)"},
+        {{"the", "projection", "of", "_", "onto", "_"},       "project",       "project(?, ?)"},
+        {{"the", "component", "of", "_", "along", "_"},       "project",       "project(?, ?)"},
+        {{"the", "unit", "vector", "along", "_"},             "normalize",     "normalize(?)"},
+        {{"the", "unit", "vector", "in", "the", "direction", "of", "_"},
+                                                              "normalize",     "normalize(?)"},
+        {{"the", "angle", "between", "_", "and", "_"},        "angle",         "angle(?, ?)"},
+        {{"the", "distance", "from", "_", "to", "_"},         "dist",          "dist(?, ?)"},
+        {{"the", "distance", "between", "_", "and", "_"},     "dist",          "dist(?, ?)"},
+
+        // ---- Inverse-trig + rounding (extending the math primitives group) ----
+        {{"the", "tangent", "of", "_"},                       "tan",           "tan(?)"},
+        {{"the", "arctangent", "of", "_"},                    "atan",          "atan(?)"},
+        {{"the", "arcsine", "of", "_"},                       "asin",          "asin(?)"},
+        {{"the", "arccosine", "of", "_"},                     "acos",          "acos(?)"},
+        {{"the", "floor", "of", "_"},                         "floor",         "floor(?)"},
+        {{"the", "ceiling", "of", "_"},                       "ceil",          "ceil(?)"},
+        {{"the", "nearest", "integer", "to", "_"},            "round",         "round(?)"},
 
         // ---- Closure-shaped phrases -----------------------------
         // The first hole in each of these is an EXPRESSION involving
@@ -146,6 +168,8 @@ inline const std::vector<PhrasePattern>& phrase_table() {
             "newton_numeric", "newton_numeric(?, ?)",        {0}},
         {{"the", "root", "of", "_", "between", "_", "and", "_"},
             "bisect",         "bisect(?, ?, ?)",             {0}},
+        {{"the", "derivative", "of", "_", "at", "_"},
+            "numerical_derivative", "numerical_derivative(?, ?)", {0}},
     };
     return kTable;
 }

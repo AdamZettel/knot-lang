@@ -208,6 +208,54 @@ def sort(v) {
 # Linear algebra
 # ===================================================================
 
+def normalize(v) {
+    "Unit vector in the direction of v: v / norm(v). Returns v
+     unchanged if norm(v) is zero, to avoid producing NaN."
+    n = norm(v)
+    if n == 0 { return v }
+    return v / n
+}
+
+def project(u, v) {
+    "Orthogonal projection of u onto v: (u . v / v . v) * v."
+    d = dot(v, v)
+    if d == 0 { return v }
+    return (dot(u, v) / d) * v
+}
+
+def orthogonalize(v, against) {
+    "Subtract the component of v along `against` so the result is
+     perpendicular to it: v - project(v, against). The Gram-Schmidt
+     step in one call."
+    return v - project(v, against)
+}
+
+def angle(u, v) {
+    "Angle between u and v in radians, computed via acos of the
+     normalized dot product. Returns 0 if either vector is zero."
+    nu = norm(u)
+    nv = norm(v)
+    if nu == 0 or nv == 0 { return 0 }
+    c = dot(u, v) / (nu * nv)
+    # Clamp into [-1, 1] -- floating roundoff can push c slightly
+    # outside the legal acos domain even when u, v are valid vecs.
+    if c >  1.0 { c =  1.0 }
+    if c < -1.0 { c = -1.0 }
+    return acos(c)
+}
+
+def dist(u, v) {
+    "Euclidean distance between two vectors: norm(u - v)."
+    return norm(u - v)
+}
+
+def numerical_derivative(f, x, h=1.0e-7) {
+    "Central-difference derivative of a unary function f at x.
+     Step size h defaults to 1e-7, near the optimal for double
+     precision (truncation vs subtraction-cancellation balance)."
+    return (f(x + h) - f(x - h)) / (2 * h)
+}
+
 def trace(A) {
     "Sum of the main diagonal of a square matrix: sum_i A[i,i]."
     n = rows(A)

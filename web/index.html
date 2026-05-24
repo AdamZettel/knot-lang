@@ -321,6 +321,47 @@ print(take the dot product of u and w)
 print(take the inner product of u and w)
 ` },
 
+  { name: "take: linear-algebra verbs",
+    src:
+`# Math verbs that have a name (projection, normalization, angle,
+# orthogonalization) read more clearly as phrases than as function
+# compositions. Each one compiles to a single call.
+
+u = [3.0, 4.0]
+v = [1.0, 0.0]
+
+show take the projection of u onto v
+show take the unit vector in the direction of u
+show take the angle between u and v
+show take the distance from u to v
+
+# Gram-Schmidt step in one line. After this, w is perpendicular to v.
+w = take the unit vector along orthogonalize(u, v)
+show w
+show take the angle between w and v
+` },
+
+  { name: "take: the derivative of EXPR at X",
+    src:
+`# Closure-shaped phrase. The integrand/expression after \`of\` is
+# wrapped as an anonymous fn(x) -> ... and handed to a finite-
+# difference helper. Errors at parse time if multiple free variables
+# show up (so you can't accidentally pass something with a captured
+# parameter as the dependent variable).
+
+# d/dx (x*x) at 3 = 6
+show take the derivative of x*x at 3.0
+
+# d/dx sin(x) at 0 = 1
+show take the derivative of sin(x) at 0.0
+
+# d/dx exp(x) at 1 = e
+show take the derivative of exp(x) at 1.0
+
+# d/dx (1/x) at 2 = -1/4
+show take the derivative of 1.0 / x at 2.0
+` },
+
   { name: "show: labeled debug-print",
     src:
 `# \`show EXPR\` prints "EXPR: value" using the verbatim source text
@@ -567,13 +608,15 @@ CodeMirror.defineSimpleMode('knot', {
         // C++ builtins
         'input','print','panic','plot','at','set','append','format','num','str',
         'len','rows','cols','zeros','ones','eye','dot','norm','matmul','transpose',
-        'sqrt','abs','sin','cos','exp','log','sort_vec',
+        'sqrt','abs','sin','cos','tan','asin','acos','atan','atan2',
+        'exp','log','pow','floor','ceil','round','sort_vec',
         'rng_seed','rng_uniform','rng_normal','read_csv','write_csv',
         // stdlib
         'sum','prod','mean','vmin','vmax','argmin','argmax','linspace','arange',
         'reverse','fill','copy_vec','copy_mat','variance','std','floor_div',
         'median','sort','trace','diag','lu','solve','power_iter',
-        'bisect','newton','trapezoid','simpson','rk4','golden_section',
+        'normalize','project','orthogonalize','angle','dist','numerical_derivative',
+        'bisect','newton','newton_numeric','trapezoid','simpson','rk4','golden_section',
         'assert','assert_msg','assert_eq','assert_near','assert_mat_near',
       ].join('|') + ')\\b'),                         token: 'builtin' },
     { regex: /[a-zA-Z_][a-zA-Z0-9_]*/,               token: 'variable' },
