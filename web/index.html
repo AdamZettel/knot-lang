@@ -195,6 +195,77 @@
      italicized comment text so they read as annotations rather than
      program output. Matched in JS by the leading "# " + " -> ". */
   #output .hint { color: #565f89; font-style: italic; }
+
+  /* Console drawer at the bottom of the page. Hidden by default;
+     toggled via the header button or Cmd/Ctrl+` (backtick). When
+     visible it takes 220px off the bottom of the viewport. */
+  #console {
+    display: none;
+    flex-direction: column;
+    height: 220px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    flex-shrink: 0;
+  }
+  body.console-open #console { display: flex; }
+  #console-header {
+    padding: 6px 14px;
+    color: var(--dim);
+    font-size: 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #console-header .close {
+    background: transparent;
+    border: 0;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 6px;
+  }
+  #console-header .close:hover { color: var(--fg); }
+  #console-history {
+    flex: 1;
+    margin: 0;
+    padding: 8px 14px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #console-history .cmd     { color: #7aa2f7; }
+  #console-history .err     { color: var(--error); }
+  #console-history .ok      { color: #9ece6a; }
+  #console-history .info    { color: var(--dim); font-style: italic; }
+  #console-input-wrap {
+    display: flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  #console-input-wrap .prompt {
+    color: #7aa2f7;
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-right: 8px;
+  }
+  #console-input {
+    flex: 1;
+    background: transparent;
+    color: var(--fg);
+    border: 0;
+    outline: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
   #output.has-error { color: var(--error); }
   #status {
     font-size: 12px;
@@ -210,6 +281,7 @@
   <span class="dim">tree-walking interpreter in your browser · tokyo-night</span>
   <span class="spacer"></span>
   <select id="examples"><option value="">examples...</option></select>
+  <button id="console-toggle">Console (⌘`)</button>
   <button id="run" class="primary" disabled>Run (⌘↵)</button>
   <span id="status">loading wasm...</span>
 </header>
@@ -231,6 +303,18 @@
     </div>
   </section>
 </main>
+
+<div id="console">
+  <div id="console-header">
+    <span>knot console — type <code>help</code> for commands</span>
+    <button class="close" title="Close (⌘`)">×</button>
+  </div>
+  <pre id="console-history"></pre>
+  <div id="console-input-wrap">
+    <span class="prompt">$</span>
+    <input id="console-input" type="text" autocomplete="off" spellcheck="false">
+  </div>
+</div>
 
 <script>
 // ---------------------------------------------------------------------
@@ -781,6 +865,547 @@ plot(t, expl,  "explicit Euler (blows up)")
 ];
 
 // ---------------------------------------------------------------------
+// Method catalog for the console. Organized by topic. Each entry has a
+// short description and a self-contained knot snippet that defines (and
+// usually demonstrates) the algorithm so `load` can paste it into the
+// editor and the user can hit Run immediately.
+//
+// Methods are written for pedagogy, not production. Short, readable,
+// commented. Add freely; the only contract is that the source field
+// is valid knot that runs without error on its own.
+// ---------------------------------------------------------------------
+const CATALOG = {
+  lin: {
+    label: "linear algebra",
+    methods: {
+      lu_solve: {
+        desc: "solve A x = b via LU with partial pivoting (stdlib)",
+        source:
+`# LU solve via the stdlib (partial pivoting baked in).
+A = [[2.0, 1.0, 0.0],
+     [1.0, 3.0, 1.0],
+     [0.0, 1.0, 2.0]]
+b = [3.0, 7.0, 5.0]
+x = zeros(3)
+solve(A, b, x)
+print(x)
+`,
+      },
+      cramer2: {
+        desc: "Cramer's rule for a 2x2 system",
+        source:
+`# Cramer's rule on a 2x2. Two determinants, no factorization.
+def cramer2(A, b, x_out) {
+    a00 = at(A, 0, 0); a01 = at(A, 0, 1)
+    a10 = at(A, 1, 0); a11 = at(A, 1, 1)
+    det = a00 * a11 - a01 * a10
+    set(x_out, 0, (at(b, 0) * a11 - a01 * at(b, 1)) / det)
+    set(x_out, 1, (a00 * at(b, 1) - at(b, 0) * a10) / det)
+}
+
+A = [[2.0, 1.0], [1.0, 3.0]]
+b = [3.0, 7.0]
+x = zeros(2)
+cramer2(A, b, x)
+print(x)
+`,
+      },
+      jacobi_iter: {
+        desc: "Jacobi iteration (diagonal-dominant systems)",
+        source:
+`# Jacobi iteration: x_new[i] = (b[i] - sum_{j!=i} A[i,j]*x[j]) / A[i,i].
+# Converges if the matrix is strictly diagonally dominant.
+def jacobi(A, b, x_out, max_iter, tol) {
+    n = rows(A)
+    x_new = zeros(n)
+    for k to max_iter {
+        for i to n {
+            s = at(b, i)
+            for j to n {
+                if j != i {
+                    s -= at(A, i, j) * at(x_out, j)
+                }
+            }
+            set(x_new, i, s / at(A, i, i))
+        }
+        # copy x_new -> x_out and check convergence
+        diff = 0.0
+        for i to n {
+            d = at(x_new, i) - at(x_out, i)
+            if d < 0 { d = -d }
+            if d > diff { diff = d }
+            set(x_out, i, at(x_new, i))
+        }
+        if diff < tol { return k }
+    }
+    return max_iter
+}
+
+A = [[10.0, 1.0, 0.0],
+     [1.0, 10.0, 1.0],
+     [0.0, 1.0, 10.0]]
+b = [11.0, 12.0, 11.0]
+x = zeros(3)
+iters = jacobi(A, b, x, 100, 1e-10)
+print(x)
+print(iters)
+`,
+      },
+      gauss_seidel: {
+        desc: "Gauss-Seidel iteration (uses fresh updates immediately)",
+        source:
+`# Gauss-Seidel: like Jacobi but uses updated values within the same
+# sweep -- usually converges in fewer iterations.
+def gauss_seidel(A, b, x_out, max_iter, tol) {
+    n = rows(A)
+    for k to max_iter {
+        max_change = 0.0
+        for i to n {
+            s = at(b, i)
+            for j to n {
+                if j != i {
+                    s -= at(A, i, j) * at(x_out, j)
+                }
+            }
+            xi_new = s / at(A, i, i)
+            d = xi_new - at(x_out, i)
+            if d < 0 { d = -d }
+            if d > max_change { max_change = d }
+            set(x_out, i, xi_new)
+        }
+        if max_change < tol { return k }
+    }
+    return max_iter
+}
+
+A = [[10.0, 1.0, 0.0],
+     [1.0, 10.0, 1.0],
+     [0.0, 1.0, 10.0]]
+b = [11.0, 12.0, 11.0]
+x = zeros(3)
+print(gauss_seidel(A, b, x, 100, 1e-10))
+print(x)
+`,
+      },
+      conjugate_grad: {
+        desc: "conjugate gradient (symmetric positive definite)",
+        source:
+`# CG for symmetric positive definite A. Iteratively builds a
+# Krylov subspace and minimizes the residual norm along it.
+def cg(A, b, x_out, max_iter, tol) {
+    n = rows(A)
+    r = b - A @ x_out
+    p = r
+    rsold = dot(r, r)
+    for k to max_iter {
+        Ap = A @ p
+        alpha = rsold / dot(p, Ap)
+        x_out = x_out + alpha * p
+        r = r - alpha * Ap
+        rsnew = dot(r, r)
+        if sqrt(rsnew) < tol { return k }
+        p = r + (rsnew / rsold) * p
+        rsold = rsnew
+    }
+    return max_iter
+}
+
+A = [[4.0, 1.0], [1.0, 3.0]]
+b = [1.0, 2.0]
+x = zeros(2)
+print(cg(A, b, x, 50, 1e-12))
+print(x)
+`,
+      },
+      gram_schmidt: {
+        desc: "modified Gram-Schmidt orthonormalization",
+        source:
+`# Orthonormalize the rows of a small matrix V. Returns rows
+# as a list of vecs (knot doesn't have a mat-of-rows accessor
+# so we work with explicit vec variables).
+v1 = [2.0, 0.0, 0.0]
+v2 = [1.0, 1.0, 0.0]
+v3 = [1.0, 1.0, 1.0]
+
+u1 = normalize(v1)
+u2 = normalize(v2 - project(v2, u1))
+u3 = normalize(v3 - project(v3, u1) - project(v3, u2))
+
+print(u1)
+print(u2)
+print(u3)
+# Sanity: pairwise dot products should be ~0
+print(dot(u1, u2))
+print(dot(u1, u3))
+print(dot(u2, u3))
+`,
+      },
+    },
+  },
+
+  eig: {
+    label: "eigenvalue methods",
+    methods: {
+      power_iter: {
+        desc: "power iteration -- largest eigenvalue and its eigenvector",
+        source:
+`# Power iteration. Multiply by M repeatedly; the iterate converges
+# to the eigenvector of the dominant eigenvalue.
+M = [[2.0, 0.0, 0.0],
+     [0.0, 3.0, 0.0],
+     [0.0, 0.0, 4.0]]
+v = zeros(3)
+lam = power_iter(M, v, 200, 1e-12)
+print(lam)
+print(v)
+`,
+      },
+      inverse_power: {
+        desc: "inverse power iteration -- smallest eigenvalue",
+        source:
+`# Apply power iteration to A^{-1} instead of A. Each step solves
+# A y = x for the next iterate. Converges to the smallest-magnitude
+# eigenpair.
+def inverse_power(A, v_out, max_iter, tol) {
+    n = rows(A)
+    # initialize v_out
+    for i to n { set(v_out, i, 1.0 / sqrt(n)) }
+    lam = 0.0
+    for k to max_iter {
+        y = zeros(n)
+        solve(A, v_out, y)        # y = A^{-1} v
+        nrm = norm(y)
+        for i to n { set(v_out, i, at(y, i) / nrm) }
+        new_lam = 1.0 / nrm        # eigenvalue of A
+        if abs(new_lam - lam) < tol { return new_lam }
+        lam = new_lam
+    }
+    return lam
+}
+
+A = [[2.0, 1.0], [1.0, 3.0]]
+v = zeros(2)
+print(inverse_power(A, v, 100, 1e-12))
+print(v)
+`,
+      },
+      rayleigh_quotient: {
+        desc: "Rayleigh quotient: estimate eigenvalue from approx eigenvector",
+        source:
+`# rho(v) = (v . A v) / (v . v).  When v is close to an eigenvector
+# of A, rho(v) is a high-accuracy estimate of the eigenvalue.
+A = [[2.0, 1.0], [1.0, 3.0]]
+v = [1.0, 1.0]
+Av = A @ v
+rho = dot(v, Av) / dot(v, v)
+print(rho)
+`,
+      },
+      lanczos: {
+        desc: "Lanczos tridiagonalization (sparse symmetric)",
+        source:
+`# Lanczos: build a tridiagonal projection of A onto a Krylov subspace.
+# Three-term recurrence; basis stays orthogonal in exact arithmetic.
+def lanczos(A, q0, m) {
+    n = rows(A)
+    alphas = zeros(m)
+    betas  = zeros(m)
+    q_prev = zeros(n)
+    q = normalize(q0)
+    beta = 0.0
+    for j to m {
+        w = A @ q - beta * q_prev
+        alpha = dot(w, q)
+        set(alphas, j, alpha)
+        w = w - alpha * q
+        beta = norm(w)
+        if j < m - 1 { set(betas, j, beta) }
+        if beta < 1e-12 { return [alphas, betas] }
+        q_prev = q
+        q = w / beta
+    }
+    return [alphas, betas]
+}
+
+A = [[2.0, 1.0, 0.0, 0.0],
+     [1.0, 2.0, 1.0, 0.0],
+     [0.0, 1.0, 2.0, 1.0],
+     [0.0, 0.0, 1.0, 2.0]]
+q0 = [1.0, 0.0, 0.0, 0.0]
+result = lanczos(A, q0, 4)
+print(result[0])    # diagonals (alphas)
+print(result[1])    # off-diagonals (betas)
+`,
+      },
+      davidson: {
+        desc: "Davidson's method: preconditioned subspace iteration for low eigenpair",
+        source:
+`# Davidson, simplified. Build a small subspace V iteratively,
+# project A onto V to get a small dense problem, solve it for the
+# Ritz pair, compute a residual, precondition (here just by the
+# diagonal), and append the new direction to V. The full algorithm
+# is longer and care must be taken to orthogonalize the basis. The
+# pattern here gives the kernel without the bookkeeping.
+
+def davidson_step(A, V_cols, m) {
+    # V_cols is a list of vecs of length n.
+    # AV is a list, AV[j] = A @ V_cols[j].
+    n = rows(A)
+    # Build a temporary mat from V columns for the Rayleigh-Ritz step.
+    # Skipped: this writeup shows the algorithmic shape, not a fully
+    # numerically careful implementation. Use it as a starting point
+    # and add diagonal preconditioning + Gram-Schmidt orthogonalization.
+    print("davidson stub -- expand into a full subspace iteration")
+}
+
+davidson_step([[1.0]], [[1.0]], 1)
+`,
+      },
+    },
+  },
+
+  ode: {
+    label: "ODE integrators",
+    methods: {
+      forward_euler: {
+        desc: "explicit Euler -- y_{n+1} = y_n + h f(t_n, y_n)",
+        source:
+`# Explicit Euler on a scalar ODE.  Be aware of the stability
+# constraint h*lambda <= 2 for y' = -lambda y.
+def forward_euler(f, t0, y0, h, n) {
+    t = t0
+    y = y0
+    for k to n {
+        y = y + h * f(t, y)
+        t = t + h
+    }
+    return y
+}
+
+# y' = -2y, y(0) = 1, integrate to t=1. True value: exp(-2) ~ 0.1353
+def rhs(t, y) { return -2.0 * y }
+print(forward_euler(rhs, 0.0, 1.0, 0.01, 100))
+`,
+      },
+      rk4: {
+        desc: "classical 4th-order Runge-Kutta",
+        source:
+`# RK4 from stdlib. Works on a vec-valued ODE; here a scalar wrapped
+# as a 1-vec.
+def rhs(t, y) { return -2.0 * y }
+# Use the stdlib wrapper directly for a scalar function:
+def scalar_rk4(f, t0, y0, t1, n) {
+    h = (t1 - t0) / n
+    t = t0
+    y = y0
+    for k to n {
+        k1 = f(t, y)
+        k2 = f(t + h/2, y + (h/2) * k1)
+        k3 = f(t + h/2, y + (h/2) * k2)
+        k4 = f(t + h,   y + h * k3)
+        y = y + (h/6) * (k1 + 2*k2 + 2*k3 + k4)
+        t = t + h
+    }
+    return y
+}
+print(scalar_rk4(rhs, 0.0, 1.0, 1.0, 100))
+`,
+      },
+      backward_euler: {
+        desc: "implicit Euler for linear ODE (closed-form step)",
+        source:
+`# For y' = -lambda y the implicit Euler step y_{n+1} = y_n / (1+h lambda)
+# has a closed form. Unconditionally stable for any h > 0.
+lam = 50.0
+h   = 0.05
+n   = 30
+y = 1.0
+for k to n { y = y / (1.0 + h * lam) }
+print(y)                   # should approach exp(-lam * n * h)
+print(exp(-lam * n * h))
+`,
+      },
+      leapfrog: {
+        desc: "leapfrog -- symplectic integrator for second-order ODEs",
+        source:
+`# Leapfrog for x'' = a(x). State: position x, velocity v.
+# Step:  v_{n+1/2} = v_{n-1/2} + h a(x_n)
+#        x_{n+1}   = x_n + h v_{n+1/2}
+# Conserves energy to high accuracy over long times.
+
+def acc(x) { return -x }   # harmonic oscillator, omega = 1
+
+x = 1.0
+v_half = 0.0       # v at t = -h/2 (start at rest at t=0)
+h = 0.05
+n = 200
+for k to n {
+    v_half = v_half + h * acc(x)
+    x = x + h * v_half
+}
+print(x)
+print(v_half)
+`,
+      },
+    },
+  },
+
+  quad: {
+    label: "quadrature",
+    methods: {
+      trapezoid: {
+        desc: "composite trapezoidal rule",
+        source:
+`# Composite trapezoidal rule. Second order in step size.
+def trap(f, a, b, n) {
+    h = (b - a) / n
+    s = (f(a) + f(b)) / 2.0
+    for k to n - 1 {
+        s += f(a + (k + 1) * h)
+    }
+    return s * h
+}
+
+# integral of sin(x) from 0 to pi  =  2
+pi = 3.14159265358979
+print(trap(fn(x) -> sin(x), 0.0, pi, 100))
+`,
+      },
+      simpson: {
+        desc: "composite Simpson's rule",
+        source:
+`# Composite Simpson, 4th-order. Use the stdlib version.
+pi = 3.14159265358979
+# Use the `take` phrase for inline natural form.
+print(take the integral of sin(x) from 0.0 to pi)
+`,
+      },
+      gauss_legendre_2: {
+        desc: "Gauss-Legendre quadrature with 2 nodes (exact for cubics)",
+        source:
+`# Two-node Gauss-Legendre on [-1, 1]: nodes +/- 1/sqrt(3), weights 1.
+# Map to [a, b] by t = (b-a)/2 * x + (a+b)/2 and scale by (b-a)/2.
+def gauss2(f, a, b) {
+    half  = (b - a) / 2.0
+    mid   = (a + b) / 2.0
+    s = 1.0 / sqrt(3.0)
+    return half * (f(mid - half * s) + f(mid + half * s))
+}
+
+# integral of x^3 from 0 to 1 = 1/4. Cubic is exact at 2 nodes.
+print(gauss2(fn(x) -> x*x*x, 0.0, 1.0))
+`,
+      },
+      kahan_sum: {
+        desc: "Kahan compensated summation",
+        source:
+`# Kahan: track and reinject the rounding error each addition loses.
+def kahan_sum_vec(v) {
+    s = 0.0
+    c = 0.0
+    iterate over v as x {
+        y = x - c
+        t = s + y
+        c = (t - s) - y
+        s = t
+    }
+    return s
+}
+
+v = ones(1000000)
+print(kahan_sum_vec(v))
+`,
+      },
+    },
+  },
+
+  root: {
+    label: "root finding",
+    methods: {
+      bisect: {
+        desc: "bisection -- bracketed root by interval halving",
+        source:
+`# Bisection on a continuous f with f(a) * f(b) < 0.
+def f(x) { return x * x - 2.0 }
+# stdlib bisect; or in phrase form:
+print(take the root of x*x - 2.0 between 1.0 and 2.0)
+`,
+      },
+      newton: {
+        desc: "Newton-Raphson with analytical derivative",
+        source:
+`# Newton's method when you have an exact derivative.
+def f(x)  { return x * x - 2.0 }
+def df(x) { return 2.0 * x }
+x = newton(f, df, 1.5)
+print(x)
+`,
+      },
+      newton_numeric: {
+        desc: "Newton with finite-difference derivative",
+        source:
+`# Newton when you don't want to type a derivative.
+def f(x) { return x * x - 2.0 }
+# stdlib helper; or use the phrase form:
+print(take the root of x*x - 2.0 starting at 1.5)
+`,
+      },
+      secant: {
+        desc: "secant method (no derivative; uses successive iterates)",
+        source:
+`# Secant: replace f'(x) with the slope through the last two iterates.
+# Converges nearly as fast as Newton but doesn't need a derivative.
+def secant(f, x0, x1, tol, max_iter) {
+    for k to max_iter {
+        f0 = f(x0)
+        f1 = f(x1)
+        if abs(f1) < tol { return x1 }
+        if f1 == f0 { return x1 }
+        x2 = x1 - f1 * (x1 - x0) / (f1 - f0)
+        x0 = x1
+        x1 = x2
+    }
+    return x1
+}
+
+def f(x) { return x * x - 2.0 }
+print(secant(f, 1.0, 2.0, 1e-12, 50))
+`,
+      },
+    },
+  },
+
+  opt: {
+    label: "optimization",
+    methods: {
+      golden_section: {
+        desc: "golden-section search for a unimodal min",
+        source:
+`# Golden-section bracketing minimum search. Unimodal f on [a, b].
+def f(x) { return (x - 0.7) * (x - 0.7) + 1.0 }
+print(golden_section(f, 0.0, 1.0))
+`,
+      },
+      gradient_descent_1d: {
+        desc: "1-D gradient descent with a numerical derivative",
+        source:
+`# Plain gradient descent on a scalar function. step_size controls
+# the convergence vs overshoot trade-off.
+def f(x) { return (x - 0.7) * (x - 0.7) + 1.0 }
+x = 0.0
+step = 0.1
+for k to 200 {
+    g = numerical_derivative(f, x)
+    x = x - step * g
+}
+print(x)
+`,
+      },
+    },
+  },
+};
+
+// ---------------------------------------------------------------------
 // CodeMirror knot mode. Regex table is order-sensitive: longer/
 // more-specific patterns must come before short generic ones. Keyword
 // and builtin lists are kept in sync with src/token.hpp's keyword map
@@ -1032,6 +1657,154 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
     if (!runBtn.disabled) run();
+  }
+  // Cmd/Ctrl+` toggles the console drawer.
+  if ((e.metaKey || e.ctrlKey) && e.key === '`') {
+    e.preventDefault();
+    toggleConsole();
+  }
+});
+
+// ---------------------------------------------------------------------
+// Console drawer
+// ---------------------------------------------------------------------
+const consoleEl     = document.getElementById('console');
+const consoleHist   = document.getElementById('console-history');
+const consoleInput  = document.getElementById('console-input');
+const consoleToggle = document.getElementById('console-toggle');
+const consoleClose  = consoleEl.querySelector('.close');
+
+function toggleConsole(force) {
+  const want = (force === undefined) ? !document.body.classList.contains('console-open')
+                                     : !!force;
+  document.body.classList.toggle('console-open', want);
+  if (want) {
+    if (consoleHist.textContent === '') {
+      writeConsole('knot console. Type `help` for commands. Cmd/Ctrl+` to close.', 'info');
+    }
+    consoleInput.focus();
+  }
+}
+consoleToggle.addEventListener('click', () => toggleConsole());
+consoleClose .addEventListener('click', () => toggleConsole(false));
+
+function writeConsole(text, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = text + '\n';
+  consoleHist.appendChild(span);
+  consoleHist.scrollTop = consoleHist.scrollHeight;
+}
+
+function consoleEcho(cmd) {
+  const span = document.createElement('span');
+  span.className = 'cmd';
+  span.textContent = '$ ' + cmd + '\n';
+  consoleHist.appendChild(span);
+}
+
+// Look up a method by short name across every category.
+// Returns { cat, key, entry } or null.
+function findMethod(name) {
+  for (const cat of Object.keys(CATALOG)) {
+    const methods = CATALOG[cat].methods;
+    if (methods[name]) return { cat, key: name, entry: methods[name] };
+  }
+  return null;
+}
+
+// Command dispatch. argv is the tokenized command line.
+function runConsoleCommand(argv) {
+  if (argv.length === 0) return;
+  const cmd = argv[0];
+  const args = argv.slice(1);
+
+  if (cmd === 'help') {
+    writeConsole([
+      'Commands:',
+      '  help                  -- this list',
+      '  ls                    -- list categories',
+      '  ls CAT                -- list methods in category CAT',
+      '  cat METHOD            -- print the source of METHOD',
+      '  load METHOD           -- replace the editor with METHOD',
+      '  paste METHOD          -- append METHOD to the editor',
+      '  clear                 -- clear console history',
+      '',
+      'Catalog categories: ' + Object.keys(CATALOG).join(', '),
+    ].join('\n'), 'info');
+    return;
+  }
+
+  if (cmd === 'clear') {
+    consoleHist.textContent = '';
+    return;
+  }
+
+  if (cmd === 'ls') {
+    if (args.length === 0) {
+      // List categories with labels.
+      for (const k of Object.keys(CATALOG)) {
+        writeConsole('  ' + k.padEnd(8) + CATALOG[k].label);
+      }
+      return;
+    }
+    const cat = args[0];
+    if (!CATALOG[cat]) {
+      writeConsole(`unknown category '${cat}'. Known: ` + Object.keys(CATALOG).join(', '), 'err');
+      return;
+    }
+    writeConsole(`${cat} -- ${CATALOG[cat].label}`, 'info');
+    for (const name of Object.keys(CATALOG[cat].methods)) {
+      const e = CATALOG[cat].methods[name];
+      writeConsole('  ' + name.padEnd(20) + e.desc);
+    }
+    return;
+  }
+
+  if (cmd === 'cat') {
+    if (args.length !== 1) { writeConsole('usage: cat METHOD', 'err'); return; }
+    const hit = findMethod(args[0]);
+    if (!hit) { writeConsole(`unknown method '${args[0]}'`, 'err'); return; }
+    writeConsole(`# ${hit.cat}/${hit.key} -- ${hit.entry.desc}`, 'info');
+    writeConsole(hit.entry.source);
+    return;
+  }
+
+  if (cmd === 'load') {
+    if (args.length !== 1) { writeConsole('usage: load METHOD', 'err'); return; }
+    const hit = findMethod(args[0]);
+    if (!hit) { writeConsole(`unknown method '${args[0]}'`, 'err'); return; }
+    cm.setValue(hit.entry.source);
+    writeConsole(`loaded ${hit.cat}/${hit.key} into the editor`, 'ok');
+    return;
+  }
+
+  if (cmd === 'paste') {
+    if (args.length !== 1) { writeConsole('usage: paste METHOD', 'err'); return; }
+    const hit = findMethod(args[0]);
+    if (!hit) { writeConsole(`unknown method '${args[0]}'`, 'err'); return; }
+    const sep = cm.getValue().endsWith('\n') ? '' : '\n';
+    cm.setValue(cm.getValue() + sep + '\n' + hit.entry.source);
+    writeConsole(`appended ${hit.cat}/${hit.key} to the editor`, 'ok');
+    return;
+  }
+
+  writeConsole(`unknown command '${cmd}'. Try \`help\`.`, 'err');
+}
+
+consoleInput.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const raw = consoleInput.value.trim();
+  consoleInput.value = '';
+  if (raw === '') return;
+  consoleEcho(raw);
+  // Tokenize on whitespace. Quotes not supported in v1.
+  const argv = raw.split(/\s+/);
+  try {
+    runConsoleCommand(argv);
+  } catch (ex) {
+    writeConsole(String(ex && ex.message ? ex.message : ex), 'err');
   }
 });
 
