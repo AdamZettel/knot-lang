@@ -59,7 +59,7 @@ syn keyword knotKeyword solver method problem requires implements canonical
 
 " ---- Builtin functions (src/interpreter.hpp register_builtins) ------
 
-syn keyword knotBuiltin input print panic plot
+syn keyword knotBuiltin input print panic plot plot_save
 syn keyword knotBuiltin at set append format
 syn keyword knotBuiltin num str len rows cols
 syn keyword knotBuiltin zeros ones eye dot norm matmul transpose

@@ -1369,14 +1369,49 @@ inline std::string json_double(double d) {
     return os.str();
 }
 
+// Minimal JSON string escape for the plot builtins: \ and " only.
+// Knot strings are UTF-8 and we let everything else pass through.
+inline std::string json_str(const std::string& in) {
+    std::string out;
+    out.reserve(in.size() + 2);
+    out.push_back('"');
+    for (char c : in) {
+        if (c == '"' || c == '\\') { out.push_back('\\'); out.push_back(c); }
+        else                        { out.push_back(c); }
+    }
+    out.push_back('"');
+    return out;
+}
+
+// Serialize a single trace (x, y, name) to its JSON object form:
+//   {"name": "...", "x": [...], "y": [...], "kind": "line"}
+// Shared by plot() (stdout marker) and plot_save() (file output).
+inline std::string trace_json(const Vec& x, const Vec& y, const std::string& name) {
+    std::ostringstream os;
+    os << "{\"name\":" << json_str(name)
+       << ",\"kind\":\"line\""
+       << ",\"x\":[";
+    for (size_t i = 0; i < x.size(); ++i) {
+        if (i) os << ",";
+        os << json_double(x[i]);
+    }
+    os << "],\"y\":[";
+    for (size_t i = 0; i < y.size(); ++i) {
+        if (i) os << ",";
+        os << json_double(y[i]);
+    }
+    os << "]}";
+    return os.str();
+}
+
 // plot(x, y)         -- single trace from two equal-length vecs
 // plot(x, y, "name") -- as above with a trace label
 //
 // Emits a sentinel-prefixed JSON line to stdout. The browser playground
 // (web/index.html) intercepts every line starting with __knot_plot__,
 // pulls the JSON off the rest, and renders it via Plotly. Under the CLI
-// the line passes through as-is; downstream pipelines can grep it out
-// or, eventually, a plot_save() builtin can write it straight to disk.
+// the line passes through as-is. For CLI workflows that want to render
+// later, use plot_save() instead -- it writes the same JSON to a file.
 inline Value b_plot(const std::vector<Value>& args, Span s) {
     if (args.size() < 2 || args.size() > 3)
         throw Diag(s, "plot(x, y) or plot(x, y, name): expected 2 or 3 args");
@@ -1392,35 +1427,67 @@ inline Value b_plot(const std::vector<Value>& args, Span s) {
             throw Diag(s, "plot: third arg (name) must be a string");
         name = args[2].as_str();
     }
+    std::cout << "__knot_plot__ " << trace_json(x, y, name) << "\n";
+    return Value::nil();
+}
 
-    // Escape only the bare minimum for a JSON string literal: backslash
-    // and double-quote. Knot strings are UTF-8 and we let everything
-    // else pass through (the playground decodes UTF-8 anyway).
-    auto json_str = [](const std::string& in) {
-        std::string out;
-        out.reserve(in.size() + 2);
-        out.push_back('"');
-        for (char c : in) {
-            if (c == '"' || c == '\\') { out.push_back('\\'); out.push_back(c); }
-            else                       { out.push_back(c); }
+// plot_save(path, x, y)         -- one-trace JSON file
+// plot_save(path, x, y, "name") -- with a trace name
+// plot_save(path, x, Y)         -- mat Y, one trace per column (named "col_0", "col_1", ...)
+// plot_save(path, x, Y, "name") -- as above, trace names are "name 0", "name 1", ...
+//
+// Writes a JSON file the standalone viewer (web/viewer.html) can load.
+// JSON shape: { "traces": [ {"name":..., "kind":"line", "x":[...], "y":[...]}, ... ] }
+//
+// Each call OVERWRITES the file with one fresh document. For multi-
+// trace plots, pass a mat or build the data into a single call;
+// appending across multiple calls is intentionally not supported
+// (state in a file across calls is a hard-to-debug source of bugs).
+inline Value b_plot_save(const std::vector<Value>& args, Span s) {
+    if (args.size() < 3 || args.size() > 4)
+        throw Diag(s, "plot_save(path, x, y[, name]) or plot_save(path, x, Y[, name])");
+    if (!args[0].is_str())
+        throw Diag(s, "plot_save: first arg must be a string path");
+    if (!args[1].is_vec())
+        throw Diag(s, "plot_save: second arg must be a vec (x values)");
+    const std::string& path = args[0].as_str();
+    const Vec& x = args[1].as_vec();
+    std::string base_name = "trace";
+    if (args.size() == 4) {
+        if (!args[3].is_str())
+            throw Diag(s, "plot_save: name arg must be a string");
+        base_name = args[3].as_str();
+    }
+
+    std::ostringstream out;
+    out << "{\"traces\":[";
+
+    if (args[2].is_vec()) {
+        const Vec& y = args[2].as_vec();
+        if (x.size() != y.size())
+            throw Diag(s, "plot_save: x and y must have the same length");
+        out << trace_json(x, y, base_name);
+    } else if (args[2].is_mat()) {
+        const Mat& Y = args[2].as_mat();
+        if (Y.rows != x.size())
+            throw Diag(s, "plot_save: matrix row count must match x length");
+        for (size_t j = 0; j < Y.cols; ++j) {
+            Vec col((size_t)Y.rows);
+            for (size_t i = 0; i < Y.rows; ++i) col[i] = Y.at(i, j);
+            std::string nm = (args.size() == 4)
+                ? base_name + " " + std::to_string(j)
+                : "col_" + std::to_string(j);
+            if (j) out << ",";
+            out << trace_json(x, col, nm);
         }
-        out.push_back('"');
-        return out;
-    };
+    } else {
+        throw Diag(s, "plot_save: third arg must be a vec or a mat");
+    }
+    out << "]}";
 
-    std::ostringstream os;
-    os << "__knot_plot__ {\"name\":" << json_str(name) << ",\"x\":[";
-    for (size_t i = 0; i < x.size(); ++i) {
-        if (i) os << ",";
-        os << json_double(x[i]);
-    }
-    os << "],\"y\":[";
-    for (size_t i = 0; i < y.size(); ++i) {
-        if (i) os << ",";
-        os << json_double(y[i]);
-    }
-    os << "]}";
-    std::cout << os.str() << "\n";
+    std::ofstream f(path);
+    if (!f) throw Diag(s, "plot_save: cannot open '" + path + "' for writing");
+    f << out.str();
     return Value::nil();
 }
 
@@ -1762,6 +1829,7 @@ inline void Interpreter::register_builtins() {
     reg("print",     builtins::b_print);
     reg("panic",     builtins::b_panic);
     reg("plot",      builtins::b_plot);
+    reg("plot_save", builtins::b_plot_save);
     reg("at",        builtins::b_at);
     reg("set",       builtins::b_set);
     reg("append",    builtins::b_append);

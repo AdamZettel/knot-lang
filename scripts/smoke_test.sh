@@ -371,6 +371,28 @@ GOT=$(./knot --fuzz slot=m_a,m_b /tmp/_fuzz_b.knot 2>&1 | tail -1)
 check "fuzz: two disagreeing methods" "  DISAGREEMENT: outputs differ across methods." "$GOT"
 rm -f /tmp/_fuzz_a.knot /tmp/_fuzz_b.knot
 
+echo "== plot_save =="
+
+# plot_save() writes a JSON file. Verify --interp emits valid JSON
+# (the --exec codegen path doesn't lower plot_save yet; see
+# CODEGEN_GAPS.md). Absolute path in the test so cwd doesn't matter.
+rm -f /tmp/_knot_plot.json
+cat > /tmp/_plot_test.knot <<'EOF'
+x = [0.0, 1.0, 2.0]
+y = [0.0, 1.0, 4.0]
+plot_save("/tmp/_knot_plot.json", x, y, "demo")
+EOF
+./knot --no-hints /tmp/_plot_test.knot > /dev/null 2>&1
+if [ -f /tmp/_knot_plot.json ] \
+   && python3 -c "import json; json.load(open('/tmp/_knot_plot.json'))" 2>/dev/null; then
+    echo "  PASS  plot_save (interp) writes valid JSON"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  plot_save (interp) JSON missing or invalid"
+    FAIL=$((FAIL + 1))
+fi
+rm -f /tmp/_plot_test.knot /tmp/_knot_plot.json
+
 echo "== stress tests =="
 
 # Each stress test asserts its own correctness via `test "..."`
