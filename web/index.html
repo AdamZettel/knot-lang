@@ -2353,22 +2353,27 @@ function startCurrentLine() {
   renderTeachTyped();
 }
 
+// Mask a line's content for walk mode: replace every non-whitespace
+// character with a shaded block, preserve spaces and tabs so
+// indentation still reads. Line numbers are rendered separately and
+// stay visible.
+function maskLine(s) { return s.replace(/\S/g, '▒'); }
+
 function renderTeachScore() {
   // Per-line state: done / current / pending / oos (out of scope --
   // used in stepped modes for lines outside the current step's
   // window). Pending inherits the parent dim color.
   //
-  // In stepped modes (-s, --reverse, -b), oos covers any source-line
-  // index whose corresponding typeable index falls OUTSIDE
-  // [bnds[0], bnds[1]]. Lines before the step's first source-line
-  // are "past" and shown done; lines after the step's last are
-  // future-OOS.
+  // In walk mode the line CONTENT is masked unless we're in the
+  // looking phase; the user pays the walk cost to see real code.
+  // Line numbers and indentation pattern stay visible always.
   const bnds = stepBounds();
   let stepFirstSrc = -1, stepLastSrc = teachLines.length;
   if (bnds) {
     stepFirstSrc = typeableIdxs[bnds[0]];
     stepLastSrc  = typeableIdxs[bnds[1]];
   }
+  const masking = teachWalk && walkState !== 'looking';
   const out = [];
   for (let i = 0; i < teachLines.length; i++) {
     const num = String(i + 1).padStart(3, ' ');
@@ -2376,19 +2381,17 @@ function renderTeachScore() {
     if (i === teachLineIdx) {
       cls = 'current';
     } else if (bnds) {
-      // Stepped: only lines in [stepFirstSrc, stepLastSrc] are pending;
-      // before is done, after is oos.
       if (i < stepFirstSrc)      cls = 'done';
       else if (i > stepLastSrc)  cls = 'oos';
       else if (i < teachLineIdx) cls = 'done';
       else                       cls = 'pending';
     } else {
-      // Standard: linear progression.
       cls = (i < teachLineIdx) ? 'done' : 'pending';
     }
+    const text = masking ? maskLine(teachLines[i]) : teachLines[i];
     out.push(
       `<span class="${cls}"><span class="ln-num">${num}</span>` +
-      escapeHTML(teachLines[i]) + '</span>'
+      escapeHTML(text) + '</span>'
     );
   }
   teachScore.innerHTML = out.join('\n');
@@ -2462,8 +2465,9 @@ function beginLooking() {
   document.body.classList.add('walk-looking');
   let s = LOOK_S;
   teachCountdown.textContent = `(${s})`;
-  // Re-render typed pre so the user can see the per-char highlights
-  // (active during looking).
+  // Reveal: the score un-masks and the typed line picks up per-char
+  // highlighting.
+  renderTeachScore();
   renderTeachTyped();
   const tick = () => {
     s--;
@@ -2483,6 +2487,8 @@ function endLooking() {
   teachWalkBar.style.transition = `width ${WALK_MS}ms linear`;
   teachWalkBar.style.width = '0%';
   walkTimers.push(setTimeout(finishWalk, WALK_MS));
+  // Re-mask the score and drop per-char coloring on the typed pre.
+  renderTeachScore();
   renderTeachTyped();
 }
 
