@@ -1996,10 +1996,16 @@ function runConsoleCommand(argv) {
       '  cat METHOD            -- print the source of METHOD',
       '  load METHOD           -- replace the editor with METHOD',
       '  paste METHOD          -- append METHOD to the editor',
-      '  teach METHOD          -- ghost the algorithm; you retype it',
+      '  teach METHOD          -- line-by-line typing practice',
       '  wb METHOD             -- alias for teach (whiteboard)',
-      '  reveal                -- exit teach mode, reveal the source',
+      '  reveal                -- exit teach mode, paste source',
+      '  repeat N              -- passes per line in teach mode (default 1)',
       '  clear                 -- clear console history',
+      '',
+      'In teach mode:',
+      '  Enter advances on exact match.   Tab inserts 4 spaces.',
+      '  Comments (#...) and blank lines auto-skip.',
+      '  Leading indentation is pre-filled, cursor at first content char.',
       '',
       'Catalog categories: ' + Object.keys(CATALOG).join(', '),
     ].join('\n'), 'info');
@@ -2077,6 +2083,32 @@ function runConsoleCommand(argv) {
     return;
   }
 
+  if (cmd === 'repeat') {
+    if (args.length === 0) {
+      writeConsole(`teach repeat count is ${teachRepeat}. Usage: repeat N`, 'info');
+      return;
+    }
+    const n = parseInt(args[0], 10);
+    if (!Number.isInteger(n) || n < 1 || n > 50) {
+      writeConsole('repeat: N must be an integer in [1, 50]', 'err');
+      return;
+    }
+    teachRepeat = n;
+    try { localStorage.setItem('knot-teach-repeat', String(n)); }
+    catch (e) { /* localStorage might be unavailable */ }
+    writeConsole(
+      `teach repeat count set to ${n}. Each line will require ${n} clean pass${n === 1 ? '' : 'es'}.`,
+      'ok');
+    // If a teach session is active, update progress display.
+    if (teachActive) {
+      // If we just bumped repeat above the current pass, the line
+      // user JUST finished now needs more work. Don't reset
+      // teachPass; let the change take effect from the next line.
+      updateTeachProgress();
+    }
+    return;
+  }
+
   writeConsole(`unknown command '${cmd}'. Try \`help\`.`, 'err');
 }
 
@@ -2120,14 +2152,43 @@ const teachInput     = document.getElementById('teach-input');
 let teachActive  = null;
 let teachLines   = [];
 let teachLineIdx = 0;
+let teachPass    = 1;          // current pass on the current line (1-indexed)
+let teachRepeat  = 1;          // how many clean passes per line to require
 
-// True if the line is whitespace-only -- nothing to practice.
-function isBlankLine(s) { return s.replace(/[ \t]/g, '') === ''; }
+// Repeat count persists across sessions. Validation happens in the
+// console command; here we just read whatever was saved.
+try {
+  const v = parseInt(localStorage.getItem('knot-teach-repeat'), 10);
+  if (Number.isInteger(v) && v >= 1 && v <= 50) teachRepeat = v;
+} catch (e) { /* ignore */ }
 
-// Find the next non-blank line at or after idx.
+// Lines that don't merit retyping in teach mode -- the user reads
+// them in the score but doesn't drill them. Comments and blanks.
+function isBlankLine(s)   { return /^[ \t]*$/.test(s); }
+function isCommentLine(s) { return /^[ \t]*#/.test(s); }
+function isSkippable(s)   { return isBlankLine(s) || isCommentLine(s); }
+
+// Find the next typeable line at or after idx.
 function nextRealLine(idx) {
-  while (idx < teachLines.length && isBlankLine(teachLines[idx])) idx++;
+  while (idx < teachLines.length && isSkippable(teachLines[idx])) idx++;
   return idx;
+}
+
+// Extract just the leading whitespace of a line.
+function leadingWs(s) { return s.match(/^[ \t]*/)[0]; }
+
+// Reset the practice input to the current line's leading whitespace,
+// cursor parked at the first non-whitespace character. The user only
+// has to type the meaningful content.
+function startCurrentLine() {
+  const line = teachLines[teachLineIdx] || '';
+  const lead = leadingWs(line);
+  teachInput.value = lead;
+  // Defer the selection update so the input layout has settled.
+  setTimeout(() => {
+    teachInput.setSelectionRange(lead.length, lead.length);
+  }, 0);
+  renderTeachTyped();
 }
 
 function renderTeachScore() {
@@ -2178,31 +2239,38 @@ function renderTeachTyped() {
 }
 
 function updateTeachProgress() {
-  // Count real (non-blank) lines and how many are completed.
+  // Count typeable (non-skippable) lines, and how many are done.
   let total = 0, done = 0;
   for (let i = 0; i < teachLines.length; i++) {
-    if (isBlankLine(teachLines[i])) continue;
+    if (isSkippable(teachLines[i])) continue;
     total++;
     if (i < teachLineIdx) done++;
   }
-  teachProgress.textContent = `line ${done + 1} / ${total}`;
+  let text = `line ${Math.min(done + 1, total)} / ${total}`;
+  if (teachRepeat > 1 && teachLineIdx < teachLines.length) {
+    text += `  ·  pass ${teachPass} / ${teachRepeat}`;
+  }
+  teachProgress.textContent = text;
 }
 
 function enterTeachMode(hit) {
   teachActive  = hit;
   teachLines   = hit.entry.source.replace(/\n$/, '').split('\n');
   teachLineIdx = nextRealLine(0);
-  teachInput.value = '';
+  teachPass    = 1;
   document.body.classList.add('teach-mode');
   teachTitle.textContent = `teach: ${hit.cat}/${hit.key}`;
   updateTeachProgress();
   renderTeachScore();
-  renderTeachTyped();
+  startCurrentLine();
   // Defer focus so the panel's display:flex is applied first.
   setTimeout(() => teachInput.focus(), 0);
+  const repeatNote = teachRepeat > 1
+    ? ` Each line needs ${teachRepeat} clean passes (\`repeat N\` to change).`
+    : ' (\`repeat N\` makes each line take N clean passes.)';
   writeConsole(
-    `teach mode: ${hit.cat}/${hit.key}. Type each line and press Enter ` +
-    `to advance. Esc exits.`, 'ok');
+    `teach mode: ${hit.cat}/${hit.key}.` + repeatNote +
+    ' Enter to advance, Tab for 4 spaces, Esc exits.', 'ok');
 }
 
 function exitTeachMode(reveal) {
@@ -2221,7 +2289,7 @@ function exitTeachMode(reveal) {
 }
 
 function teachAdvance() {
-  // Try to advance: the typed line must match the target exactly.
+  // The typed line must match the target exactly (whitespace and all).
   const target = teachLines[teachLineIdx] || '';
   const typed  = teachInput.value;
   if (typed !== target) {
@@ -2233,19 +2301,27 @@ function teachAdvance() {
     );
     return;
   }
-  // Move to next real line.
+  // Match. If we still owe more passes on this line, restart it.
+  if (teachPass < teachRepeat) {
+    teachPass++;
+    updateTeachProgress();
+    startCurrentLine();
+    return;
+  }
+  // All passes done; advance to the next typeable line.
+  teachPass    = 1;
   teachLineIdx = nextRealLine(teachLineIdx + 1);
-  teachInput.value = '';
   updateTeachProgress();
   renderTeachScore();
-  renderTeachTyped();
   if (teachLineIdx >= teachLines.length) {
     // Completed all lines: drop back to the editor with the full
     // source pasted so the user can run it.
     writeConsole(
       `teach: completed ${teachActive.cat}/${teachActive.key}.`, 'ok');
     exitTeachMode(true);
+    return;
   }
+  startCurrentLine();
 }
 
 teachInput.addEventListener('input', renderTeachTyped);
@@ -2258,6 +2334,17 @@ teachInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault();
     exitTeachMode(true);
+    return;
+  }
+  if (e.key === 'Tab') {
+    // Insert four spaces, like a normal editor. Default Tab in an
+    // <input> would move focus, which is useless mid-practice.
+    e.preventDefault();
+    const pos = teachInput.selectionStart;
+    const val = teachInput.value;
+    teachInput.value = val.slice(0, pos) + '    ' + val.slice(pos);
+    teachInput.selectionStart = teachInput.selectionEnd = pos + 4;
+    renderTeachTyped();
     return;
   }
 });
@@ -2320,7 +2407,7 @@ function pushHistory(cmd) {
 // ---------------------------------------------------------------------
 const CONSOLE_COMMANDS = [
   'help', 'ls', 'cat', 'load', 'paste',
-  'teach', 'wb', 'reveal', 'clear',
+  'teach', 'wb', 'reveal', 'repeat', 'clear',
 ];
 
 function allMethodNames() {
