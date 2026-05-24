@@ -371,6 +371,16 @@ private:
                      && cli_prebinds_.count(s.name)) {
                         return;
                     }
+                    // Per-value (num) tags live on call expressions and
+                    // for-loop iterators; storing to a variable abstracts.
+                    // `n = rows(A)` makes n an ordinary count, so the
+                    // shape-tag system stays a useful guard at the points
+                    // where axis-meaning is fresh (the headline catch
+                    // `for i to rows(A) { for j to cols(A) { M[j, i] = ... }`)
+                    // and gets out of the way once values pass through
+                    // an alias. Vec/mat tags live inside the value and
+                    // aren't touched here.
+                    if (v.is_num()) v.tag.reset();
                     // Auto-create-or-reassign. If the name exists anywhere
                     // in the scope chain, update in place; otherwise create
                     // in the current scope. This is Python-like.
