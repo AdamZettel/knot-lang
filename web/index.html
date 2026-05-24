@@ -37,6 +37,10 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/simple.min.js"></script>
+<!-- runmode lets us tokenize knot source outside a full CodeMirror
+     editor instance -- needed for syntax highlighting in the teach
+     panel's target and typed-line displays. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/runmode/runmode.min.js"></script>
 <style>
   :root {
     --bg: #1a1a1a;
@@ -322,8 +326,9 @@
   /* Namespaced class names. Earlier versions used .right / .wrong /
      .cursor and collided with the right-pane's .right { display:
      flex; flex-direction: column } -- every matched character
-     turned into a block flex container and stacked vertically. */
-  #teach-typed  .tt-ok  { color: #9ece6a; }
+     turned into a block flex container and stacked vertically.
+     Right characters now take their normal cm-* syntax color; tt-err
+     overrides syntax to red on mismatch. */
   #teach-typed  .tt-err { color: var(--error); background: rgba(247, 118, 142, 0.18); }
   #teach-typed  .tt-cur {
     border-left: 2px solid #c0caf5;
@@ -497,7 +502,7 @@
         <button id="teach-exit" title="exit (Esc)">×</button>
       </div>
       <pre id="teach-score"></pre>
-      <div id="teach-current">
+      <div id="teach-current" class="cm-s-knot-night">
         <div class="hdr">type this line:<span id="teach-countdown"></span></div>
         <pre id="teach-target"></pre>
         <div id="teach-walk-overlay">
@@ -2404,30 +2409,79 @@ function escapeHTML(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Render the typed line. In standard mode each char gets right /
-// wrong coloring vs the target. In walk mode (and outside the
-// looking phase), per-char coloring is suppressed -- otherwise the
-// user could trial-and-error their way to the target one keystroke
-// at a time, defeating the recall exercise. They get line-level
-// feedback only, on Enter.
+// Run the knot CodeMirror mode over a single source line and return
+// a per-character array of token styles (e.g. 'keyword', 'string',
+// or null for plain text). Lets the teach panel apply the same
+// syntax coloring as the main editor without instantiating a CM.
+function tokenizeLine(text) {
+  const styles = new Array(text.length).fill(null);
+  let pos = 0;
+  CodeMirror.runMode(text, 'knot', (tokenText, tokenStyle) => {
+    for (let i = 0; i < tokenText.length; i++) {
+      if (pos + i < styles.length) styles[pos + i] = tokenStyle;
+    }
+    pos += tokenText.length;
+  });
+  return styles;
+}
+
+// Build an HTML string for a single source line with each run of
+// same-style characters wrapped in a `cm-STYLE` span. Returns
+// '&nbsp;' for empty lines so the pre keeps its line height.
+function renderSyntaxLine(text) {
+  if (text === '') return '&nbsp;';
+  const styles = tokenizeLine(text);
+  let html = '';
+  let i = 0;
+  while (i < text.length) {
+    const s = styles[i];
+    let j = i + 1;
+    while (j < text.length && styles[j] === s) j++;
+    const chunk = escapeHTML(text.slice(i, j));
+    html += s ? `<span class="cm-${s}">${chunk}</span>` : chunk;
+    i = j;
+  }
+  return html;
+}
+
+// Render the typed line. Right characters get the same syntax
+// highlighting they'd get in the editor; wrong characters override
+// to red so they stand out. In walk mode outside the looking phase
+// per-char coloring is suppressed entirely (a per-key colored
+// signal would leak which characters are right).
 function renderTeachTyped() {
   const target = teachLines[teachLineIdx] || '';
   const typed  = teachInput.value;
   const colorize = !teachWalk || walkState === 'looking';
-  const out = [];
-  for (let i = 0; i < typed.length; i++) {
-    const tc = typed[i];
-    if (colorize) {
+
+  if (typed.length === 0) {
+    teachTyped.innerHTML = '<span class="tt-cur"></span>';
+  } else if (!colorize) {
+    // Walk mode, not looking: render typed as plain monospace
+    // text. No per-char coloring, no syntax highlighting.
+    teachTyped.innerHTML = escapeHTML(typed) + '<span class="tt-cur"></span>';
+  } else {
+    const targetStyles = tokenizeLine(target);
+    const out = [];
+    for (let i = 0; i < typed.length; i++) {
+      const tc = typed[i];
       const xc = target[i];
-      const cls = (tc === xc) ? 'tt-ok' : 'tt-err';
-      out.push(`<span class="${cls}">${escapeHTML(tc)}</span>`);
-    } else {
-      out.push(escapeHTML(tc));
+      if (tc === xc) {
+        const s = targetStyles[i];
+        out.push(s
+          ? `<span class="cm-${s}">${escapeHTML(tc)}</span>`
+          : escapeHTML(tc));
+      } else {
+        out.push(`<span class="tt-err">${escapeHTML(tc)}</span>`);
+      }
     }
+    out.push('<span class="tt-cur"></span>');
+    teachTyped.innerHTML = out.join('');
   }
-  out.push('<span class="tt-cur"></span>');
-  teachTyped.innerHTML = out.length === 1 ? '&nbsp;' : out.join('');
-  teachTarget.textContent = target.length === 0 ? ' ' : target;
+
+  // Target gets syntax-highlighted always; CSS hides it during
+  // walk-mode typing/walking phases.
+  teachTarget.innerHTML = renderSyntaxLine(target);
 }
 
 // ---- Walk mechanic --------------------------------------------------
