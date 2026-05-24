@@ -148,7 +148,51 @@
      through. Palette is Tokyo Night Storm: cool blues/purples with
      warm orange/green accents for the values you read most often
      (numbers and strings). */
-  #editor { flex: 1; min-height: 0; overflow: hidden; }
+  #editor {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;     /* so the teach-mode ghost can absolute */
+  }
+
+  /* Teach mode: a dimmed pre layered behind the CodeMirror editor.
+     The user retypes the algorithm fresh; the ghost is a visual
+     reference they can read through the gaps in their own typing. */
+  #teach-ghost {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 4px 4px 4px 38px;  /* matches CM's gutter width */
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    color: rgba(192, 202, 245, 0.22);
+    font-style: italic;
+    white-space: pre;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+    background: transparent;
+    display: none;
+  }
+  body.teach-mode #teach-ghost { display: block; }
+  body.teach-mode .CodeMirror, body.teach-mode .CodeMirror-gutters {
+    background: transparent !important;
+  }
+  body.teach-mode #editor::before {
+    content: attr(data-teach-banner);
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    background: #2d3148;
+    color: #c0caf5;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+    z-index: 2;
+    pointer-events: none;
+  }
+  body.teach-mode #editor .CodeMirror { margin-top: 24px; }
+  body.teach-mode #teach-ghost { padding-top: 28px; }
   .CodeMirror {
     height: 100% !important;
     font-family: var(--mono);
@@ -289,7 +333,9 @@
 <main>
   <section>
     <div class="label">source</div>
-    <div id="editor"></div>
+    <div id="editor" data-teach-banner="teach mode — retype the algorithm; Esc to exit">
+      <pre id="teach-ghost"></pre>
+    </div>
   </section>
   <section class="right">
     <div id="plot-wrap" class="empty">
@@ -1728,6 +1774,9 @@ function runConsoleCommand(argv) {
       '  cat METHOD            -- print the source of METHOD',
       '  load METHOD           -- replace the editor with METHOD',
       '  paste METHOD          -- append METHOD to the editor',
+      '  teach METHOD          -- ghost the algorithm; you retype it',
+      '  wb METHOD             -- alias for teach (whiteboard)',
+      '  reveal                -- exit teach mode, reveal the source',
       '  clear                 -- clear console history',
       '',
       'Catalog categories: ' + Object.keys(CATALOG).join(', '),
@@ -1789,8 +1838,77 @@ function runConsoleCommand(argv) {
     return;
   }
 
+  if (cmd === 'teach' || cmd === 'wb') {
+    if (args.length !== 1) { writeConsole('usage: teach METHOD', 'err'); return; }
+    const hit = findMethod(args[0]);
+    if (!hit) { writeConsole(`unknown method '${args[0]}'`, 'err'); return; }
+    enterTeachMode(hit);
+    return;
+  }
+
+  if (cmd === 'reveal') {
+    if (!document.body.classList.contains('teach-mode')) {
+      writeConsole('not in teach mode', 'err');
+      return;
+    }
+    revealGhost();
+    return;
+  }
+
   writeConsole(`unknown command '${cmd}'. Try \`help\`.`, 'err');
 }
+
+// ---------------------------------------------------------------------
+// Teach mode
+//
+// The ghost text is the canonical implementation of the method,
+// rendered dim and italic behind the (transparent) CodeMirror editor.
+// The user reads it for reference and retypes from scratch into the
+// editor in front. This is active-recall pedagogy: the cost of
+// retyping is what makes the algorithm stick.
+//
+// Esc (or `reveal` in the console) exits teach mode and copies the
+// ghost into the editor as a normal reference so the user can verify
+// what they typed.
+// ---------------------------------------------------------------------
+const teachGhost = document.getElementById('teach-ghost');
+let teachActive = null;     // { cat, key, entry } when active, null otherwise
+
+function enterTeachMode(hit) {
+  teachActive = hit;
+  teachGhost.textContent = hit.entry.source;
+  cm.setValue('');
+  document.body.classList.add('teach-mode');
+  document.getElementById('editor').setAttribute(
+    'data-teach-banner',
+    `teach: ${hit.cat}/${hit.key} -- retype the algorithm; Esc to exit`
+  );
+  cm.refresh();   // recompute geometry after the banner pushes us down
+  cm.focus();
+  writeConsole(
+    `teach mode: ${hit.cat}/${hit.key}. The reference is dimmed behind ` +
+    `the editor. Retype the algorithm; Esc (or \`reveal\`) when done.`,
+    'ok');
+}
+
+function revealGhost() {
+  if (!teachActive) return;
+  document.body.classList.remove('teach-mode');
+  cm.setValue(teachActive.entry.source);
+  cm.refresh();
+  writeConsole(
+    `revealed ${teachActive.cat}/${teachActive.key} in the editor.`,
+    'ok');
+  teachActive = null;
+}
+
+document.addEventListener('keydown', (e) => {
+  // Esc exits teach mode -- but only if we're in it.
+  if (e.key === 'Escape' && document.body.classList.contains('teach-mode')) {
+    e.preventDefault();
+    revealGhost();
+  }
+});
 
 consoleInput.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
