@@ -25,6 +25,11 @@ using namespace knot;
 // programs in this owner vector so they're freed at process exit, not earlier.
 static std::vector<std::vector<StmtPtr>> g_retained;
 
+// Path of the knot binary itself (argv[0]). Set in main() and used by
+// compile_and_run to locate src/runtime.h relative to the binary
+// rather than the cwd, so `knot --exec` works from any directory.
+static std::string g_argv0;
+
 // Parse and execute the embedded stdlib source. Errors here are programmer
 // errors in the stdlib itself, not the user's code — but we print them in
 // the same format so they're at least debuggable.
@@ -558,12 +563,21 @@ static int compile_and_run(const std::string& filename, const std::string& src) 
     std::string runtime_src;
     {
         // Same lookup logic as below; do it once up-front so we can hash.
-        const char* candidates[] = {
+        std::vector<std::string> candidates = {
             "src/runtime.h",
-            "/home/claude/knot/src/runtime.h",
             "./runtime.h",
         };
-        for (const char* p : candidates) {
+        if (!g_argv0.empty()) {
+            size_t slash = g_argv0.find_last_of('/');
+            std::string bin_dir = (slash == std::string::npos)
+                ? std::string(".")
+                : g_argv0.substr(0, slash);
+            candidates.push_back(bin_dir + "/src/runtime.h");
+            candidates.push_back(bin_dir + "/../src/runtime.h");
+            candidates.push_back(bin_dir + "/runtime.h");
+        }
+        candidates.push_back("/home/claude/knot/src/runtime.h");
+        for (const auto& p : candidates) {
             std::ifstream test(p);
             if (test) {
                 std::stringstream ss; ss << test.rdbuf();
@@ -594,17 +608,33 @@ static int compile_and_run(const std::string& filename, const std::string& src) 
     int rc = transpile_to_c(filename, src, c_path);
     if (rc != 0) return rc;
 
-    // Find runtime.h directory for the -I flag.
-    std::string runtime_inc;
-    const char* candidates[] = {
+    // Find runtime.h directory for the -I flag. We try, in order:
+    //   1. ./src/runtime.h        (running from the repo root)
+    //   2. ./runtime.h            (legacy)
+    //   3. <bin_dir>/src/runtime.h  (sibling-of-the-binary layout)
+    //   4. <bin_dir>/../src/runtime.h  (binary in a build/ subdir)
+    //   5. /home/claude/knot/src/runtime.h  (legacy sandbox path)
+    // The bin_dir candidates let `knot --exec` work from any cwd.
+    std::vector<std::string> candidates = {
         "src/runtime.h",
-        "/home/claude/knot/src/runtime.h",
         "./runtime.h",
     };
-    for (const char* p : candidates) {
+    if (!g_argv0.empty()) {
+        size_t slash = g_argv0.find_last_of('/');
+        std::string bin_dir = (slash == std::string::npos)
+            ? std::string(".")
+            : g_argv0.substr(0, slash);
+        candidates.push_back(bin_dir + "/src/runtime.h");
+        candidates.push_back(bin_dir + "/../src/runtime.h");
+        candidates.push_back(bin_dir + "/runtime.h");
+    }
+    candidates.push_back("/home/claude/knot/src/runtime.h");
+
+    std::string runtime_inc;
+    for (const auto& p : candidates) {
         std::ifstream test(p);
         if (test) {
-            runtime_inc = std::string(p);
+            runtime_inc = p;
             size_t s = runtime_inc.find_last_of('/');
             runtime_inc = (s == std::string::npos) ? "." : runtime_inc.substr(0, s);
             break;
@@ -666,6 +696,7 @@ static int compile_and_run(const std::string& filename, const std::string& src) 
 }
 
 int main(int argc, char** argv) {
+    g_argv0 = argv[0];
     // CLI parsing.
     //   knot                     -> REPL
     //   knot FILE                -> run FILE

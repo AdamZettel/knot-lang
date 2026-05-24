@@ -14,7 +14,19 @@
       "Bash(cargo clippy)",
       "Bash(command -v *)",
       "Bash(lsof *)",
-      "Bash(emcc --version)"
+      "Bash(emcc --version)",
+
+      "Bash(julia *)",
+      "Bash(time *)",
+      "Bash(../../../knot/knot *)",
+      "Bash(../knot/knot *)",
+      "Bash(bash ../knot-bench/run.sh*)",
+      "Bash(../knot-bench/run.sh*)",
+      "Bash(cd ../knot-bench *)",
+
+      "Read(/Users/adamzettel/Documents/portfolio_projects/iris/knot/knot-bench/**)",
+      "Edit(/Users/adamzettel/Documents/portfolio_projects/iris/knot/knot-bench/**)",
+      "Write(/Users/adamzettel/Documents/portfolio_projects/iris/knot/knot-bench/**)"
     ]
   }
 }
