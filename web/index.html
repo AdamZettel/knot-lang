@@ -244,35 +244,77 @@ const EXAMPLES = [
   { name: "narrate: a self-explaining algorithm",
     src:
 `# \`narrate "..."\` prints a "# ..." line at the point it runs, so
-# the algorithm explains itself as it executes. Use --no-narrate at
-# the CLI for clean output; the playground always shows it.
+# the algorithm explains itself as it executes. The CLI has
+# --narrate-step to pause after every narrate; here in the
+# playground the whole transcript runs at once. Reading it top to
+# bottom should explain the algorithm without you needing to
+# decode the code.
 #
-# Bisection on f(x) = x^2 - 2 -- finding sqrt(2) by interval halving.
+# Bisection on f(x) = x^2 - 2. The root in [1, 2] is sqrt(2).
 
-narrate "Bisection on f(x) = x^2 - 2. The root is sqrt(2)."
+narrate "Bisection. f(x) = x^2 - 2 is continuous on [1, 2]."
+narrate "f(1) = -1 < 0 and f(2) = 2 > 0, so the IVT guarantees a"
+narrate "root somewhere in between."
 
 def f(x) { return x * x - 2.0 }
 
-narrate "Initial bracket: f(1) < 0 and f(2) > 0, so a root lies between."
 a = 1.0
 b = 2.0
-mid = 0.0     # pre-declare so the loop's reassignment escapes
+mid = 0.0     # pre-declared so reassignment in the loop escapes
 
-for k to 20 {
+# 8 iterations is enough for the structure to show. The bracket
+# halves each step, so error after k iterations is at most 2^(-k).
+for k to 8 {
     mid = (a + b) / 2.0
-    if f(a) * f(mid) < 0.0 {
-        # The root is in the lower half; drop the upper.
+    fm  = f(mid)
+    narrate format("k=%d  bracket=[%.6f, %.6f]  mid=%.6f  f(mid)=%+.6f",
+                   k, a, b, mid, fm)
+    if f(a) * fm < 0.0 {
+        narrate "       f(a) and f(mid) disagree -- root is in lower half"
         b = mid
     } else {
-        # The root is in the upper half; drop the lower.
+        narrate "       f(a) and f(mid) agree -- root is in upper half"
         a = mid
     }
 }
 
-narrate format("After 20 halvings the bracket is ~%.0e wide.", b - a)
-narrate "Final estimate:"
+narrate format("After 8 halvings: bracket width is %.0e.", b - a)
+narrate "Final estimate of sqrt(2):"
 print(mid)
 narrate "True sqrt(2):"
+print(sqrt(2.0))
+` },
+
+  { name: "narrate: Newton's method, walked through",
+    src:
+`# Newton's method on the same root (sqrt(2)) -- compare convergence
+# rate to bisection. Each iteration is a SINGLE tangent-line step,
+# narrated in full so you see why the rule is what it is.
+
+narrate "Newton's method. Pick a guess x0, then repeatedly replace it"
+narrate "with the x-intercept of the tangent line to f at the current point."
+narrate "For f(x) = x^2 - 2 the derivative is 2x, giving the update rule"
+narrate "    x_new = x - (x^2 - 2) / (2x)"
+
+def f(x) { return x * x - 2.0 }
+def df(x) { return 2.0 * x }
+
+x = 1.5
+narrate format("Initial guess: x0 = %.6f", x)
+
+for k to 6 {
+    fx  = f(x)
+    dfx = df(x)
+    step = fx / dfx
+    narrate format("k=%d  x=%.10f  f(x)=%+.6e  step = f/df = %.3e",
+                   k, x, fx, step)
+    x = x - step
+}
+
+narrate "Compare: bisection takes ~20 halvings for 1e-6 accuracy."
+narrate "Newton hits 1e-10 in 6 steps when started near the root --"
+narrate "quadratic convergence vs bisection's linear convergence."
+print(x)
 print(sqrt(2.0))
 ` },
 

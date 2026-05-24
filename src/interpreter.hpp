@@ -533,6 +533,15 @@ private:
                 std::cout << "# "
                           << (v.is_str() ? v.as_str() : format_value(v))
                           << "\n";
+                // Step-through: wait for the user to press Enter.
+                // Prompt goes to stderr so piped output stays clean.
+                if (narration_step_enabled()) {
+                    std::cout.flush();
+                    std::cerr << "  (press Enter to continue) ";
+                    std::cerr.flush();
+                    std::string line;
+                    std::getline(std::cin, line);
+                }
                 return;
             }
         }

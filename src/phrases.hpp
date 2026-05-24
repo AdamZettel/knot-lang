@@ -198,6 +198,16 @@ inline bool& narration_enabled() {
     return flag;
 }
 
+// Process-wide toggle for step-through narration. When true, the
+// interpreter pauses after each `narrate` statement and waits on
+// stdin (Enter to continue). Off by default; the CLI's
+// --narrate-step flag turns it on. Not useful in the browser
+// playground (no stdin), so the WASM entry leaves it off.
+inline bool& narration_step_enabled() {
+    static bool flag = false;
+    return flag;
+}
+
 // Fill `?` placeholders in a canonical template with hole texts in
 // order. Used for the right-hand side of translation hints.
 inline std::string format_canonical(const std::string& tmpl,
