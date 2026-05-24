@@ -33,7 +33,7 @@ def mean(v) {
 
 def vmin(v) {
     "Smallest element of v."
-    m = at(v, 0)
+    m = v[0]
     for it in v {
         if it < m { m = it }
     }
@@ -42,7 +42,7 @@ def vmin(v) {
 
 def vmax(v) {
     "Largest element of v."
-    m = at(v, 0)
+    m = v[0]
     for it in v {
         if it > m { m = it }
     }
@@ -52,11 +52,10 @@ def vmax(v) {
 def argmin(v) {
     "Index of the smallest element of v."
     best = 0
-    bestval = at(v, 0)
+    bestval = v[0]
     for i to len(v) {
-        x = at(v, i)
-        if x < bestval {
-            bestval = x
+        if v[i] < bestval {
+            bestval = v[i]
             best = i
         }
     }
@@ -66,11 +65,10 @@ def argmin(v) {
 def argmax(v) {
     "Index of the largest element of v."
     best = 0
-    bestval = at(v, 0)
+    bestval = v[0]
     for i to len(v) {
-        x = at(v, i)
-        if x > bestval {
-            bestval = x
+        if v[i] > bestval {
+            bestval = v[i]
             best = i
         }
     }
@@ -83,7 +81,7 @@ def linspace(a, b, n) {
     out = zeros(n)
     step = (b - a) / (n - 1)
     for i to n {
-        set(out, i, a + step * i)
+        out[i] = a + step * i
     }
     return out
 }
@@ -96,7 +94,7 @@ def arange(a, b, step=1) {
     }
     out = zeros(n)
     for i to n {
-        set(out, i, a + i * step)
+        out[i] = a + i * step
     }
     return out
 }
@@ -106,7 +104,7 @@ def reverse(v) {
     n = len(v)
     out = zeros(n)
     for i to n {
-        set(out, i, at(v, n - 1 - i))
+        out[i] = v[n - 1 - i]
     }
     return out
 }
@@ -115,7 +113,7 @@ def fill(n, x) {
     "Vector of length n with all elements equal to x."
     out = zeros(n)
     for i to n {
-        set(out, i, x)
+        out[i] = x
     }
     return out
 }
@@ -125,7 +123,7 @@ def copy_vec(v) {
     n = len(v)
     out = zeros(n)
     for i to n {
-        set(out, i, at(v, i))
+        out[i] = v[i]
     }
     return out
 }
@@ -135,6 +133,10 @@ def copy_mat(M) {
     r = rows(M)
     c = cols(M)
     out = zeros(r, c)
+    # set/at instead of out[i, j] = M[i, j]: the indices `i` and
+    # `j` here are tagged from M's axes, and `out` -- although
+    # created with M's tags -- is a separate matrix; the strict
+    # tag check would refuse the cross-mat copy. set/at bypass it.
     for i to r {
         for j to c {
             set(out, i, j, at(M, i, j))
@@ -179,9 +181,9 @@ def median(v) {
     n = len(s)
     half = floor_div(n, 2)
     if n % 2 == 1 {
-        return at(s, half)
+        return s[half]
     }
-    return (at(s, half - 1) + at(s, half)) / 2
+    return (s[half - 1] + s[half]) / 2
 }
 
 # ===================================================================
@@ -194,10 +196,10 @@ def sort(v) {
     out = copy_vec(v)
     for i to n {
         j = i
-        while j > 0 and at(out, j - 1) > at(out, j) {
-            tmp = at(out, j)
-            set(out, j, at(out, j - 1))
-            set(out, j - 1, tmp)
+        while j > 0 and out[j - 1] > out[j] {
+            tmp = out[j]
+            out[j] = out[j - 1]
+            out[j - 1] = tmp
             j -= 1
         }
     }
@@ -258,6 +260,10 @@ def numerical_derivative(f, x, h=1.0e-7) {
 
 def trace(A) {
     "Sum of the main diagonal of a square matrix: sum_i A[i,i]."
+    # at() rather than subscript: i comes from rows(A) and is used
+    # as both row AND col index, but A's row tag and col tag differ
+    # (square matrix or otherwise). The tag system can't express a
+    # shared-dimension iteration, so we bypass with at().
     n = rows(A)
     s = 0
     for i to n {
@@ -268,10 +274,12 @@ def trace(A) {
 
 def diag(v) {
     "Diagonal matrix with v on the diagonal."
+    # Same shared-dimension issue as trace: i is len-tagged (from
+    # len(v)) and used as both row and col of the new square M.
     n = len(v)
     M = zeros(n, n)
     for i to n {
-        set(M, i, i, at(v, i))
+        set(M, i, i, v[i])
     }
     return M
 }
@@ -280,7 +288,11 @@ def lu(A, M_out, perm_out) {
     "LU decomposition with partial pivoting. Fills M_out (a square matrix
      same shape as A) with L packed below the diagonal (unit diagonal
      implicit) and U on and above. Fills perm_out (a vec of length rows(A))
-     with the row permutation."
+     with the row permutation.
+
+     Uses set/at instead of subscript syntax: LU's inner loop uses
+     `k` as both a row index and a column index of the same square
+     matrix, and the tag system can't express the shared dimension."
     n = rows(A)
     # Copy A into M_out.
     for i to n {
@@ -334,7 +346,11 @@ def lu(A, M_out, perm_out) {
 
 def solve(A, b, x_out) {
     "Solve A x = b for x, via LU with partial pivoting.
-     x_out should be a vec of length rows(A); it will be filled with the solution."
+     x_out should be a vec of length rows(A); it will be filled with the solution.
+
+     Like `lu`, uses set/at -- the forward/back substitution loops walk
+     a square matrix's shared dimension and the tag system would refuse
+     the strict subscript form."
     n = rows(A)
     M = zeros(n, n)
     perm = zeros(n)
@@ -375,7 +391,10 @@ def power_iter(M, v_out, iters=200, tol=1e-12) {
     "Dominant eigenvalue and eigenvector by power iteration.
      v_out (a vec of length rows(M)) is filled with the eigenvector.
      The eigenvalue is returned.
-     Converges for diagonalizable M with a strictly dominant eigenvalue."
+     Converges for diagonalizable M with a strictly dominant eigenvalue.
+
+     Uses set/at: v_out is passed in from the caller, so its len_tag
+     doesn't match the row-tag we'd be iterating with."
     n = rows(M)
     # Initialize v_out to ones.
     for i to n {
@@ -581,6 +600,9 @@ def assert_mat_near(A, B, tol=1e-10) {
     worst = 0.0
     wi = 0
     wj = 0
+    # at() instead of subscript: A and B are independent matrices,
+    # so the tag check would refuse B[i, j] (i and j are tagged
+    # from A's axes).
     for i to ra {
         for j to ca {
             d = at(A, i, j) - at(B, i, j)

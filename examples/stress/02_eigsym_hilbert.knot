@@ -14,7 +14,7 @@ def build_hilbert(n) {
     H = zeros(n, n)
     for i to n {
         for j to n {
-            set(H, i, j, 1.0 / (i + j + 1))
+            H[i, j] = 1.0 / (i + j + 1)
         }
     }
     return H

@@ -47,16 +47,16 @@ def gauss_legendre(n, nodes_out, weights_out) {
         # Newton iteration.
         for _ to 30 {
             pair = legendre_p_and_dp(n, x)
-            p  = at(pair, 0)
-            dp = at(pair, 1)
+            p  = pair[0]
+            dp = pair[1]
             if abs(p) < 1.0e-15 { break }
             x = x - p / dp
         }
-        set(nodes_out, i, x)
+        nodes_out[i] = x
         # Weight formula.
         pair = legendre_p_and_dp(n, x)
-        dp = at(pair, 1)
-        set(weights_out, i, 2.0 / ((1.0 - x * x) * dp * dp))
+        dp = pair[1]
+        weights_out[i] = 2.0 / ((1.0 - x * x) * dp * dp)
     }
     return 0
 }
@@ -78,8 +78,8 @@ show weights
 # is integrated exactly by a 4-point Gauss rule (exact through 2n-1 = 7).
 estimate = 0.0
 for i to n {
-    xi = at(nodes, i)
-    wi = at(weights, i)
+    xi = nodes[i]
+    wi = weights[i]
     estimate += wi * xi * xi * xi * xi
 }
 

@@ -1114,6 +1114,12 @@ const CATALOG = {
 #      implicit), U on and above. perm[i] tracks the row swaps.
 #   2. Forward solve  L y = P b   for y.
 #   3. Back solve     U x = y     for x.
+#
+# LU's inner loop uses one counter as both a row and column index
+# of the same matrix; knot's shape-tag system can't express that
+# shared dimension, so this code uses set/at (the tag-unchecked
+# accessors) instead of subscript syntax. Same trade-off in the
+# stdlib's solve().
 
 def lu_solve(A, b, x_out) {
     n = rows(A)
