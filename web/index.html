@@ -321,6 +321,39 @@ print(take the dot product of u and w)
 print(take the inner product of u and w)
 ` },
 
+  { name: "take: integrals and roots",
+    src:
+`# Closure-shaped phrases. The expression after \`of\` is the
+# integrand or equation; knot identifies the free variable (here
+# \`x\`) and wraps it as a one-shot function automatically.
+
+pi = 3.14159265358979
+
+# Definite integrals
+print("int x*x from 0 to 1 =", take the integral of x*x from 0.0 to 1.0)
+print("int sin(x) from 0 to pi =", take the integral of sin(x) from 0.0 to pi)
+print("int exp(-x*x) from -4 to 4 ~ sqrt(pi) =",
+      take the integral of exp(-x*x) from -4.0 to 4.0)
+
+# Roots
+print("root of x*x - 2 (Newton, x0=1) =",
+      take the root of x*x - 2.0 starting at 1.0)
+print("root of cos(x) (bisection, [0, pi]) =",
+      take the root of cos(x) between 0.0 and pi)
+
+# A more involved integrand with a closure: c is captured from the
+# surrounding scope, x is the free variable being integrated over.
+c = 0.3
+print("int exp(-c*x*x) from -10 to 10 =",
+      take the integral of exp(-c*x*x) from -10.0 to 10.0)
+
+# Refinement: more intervals tightens the result for non-smooth
+# integrands.
+crude = take the integral of abs(sin(x)) from 0.0 to 4.0 * pi
+fine  = take the integral of abs(sin(x)) from 0.0 to 4.0 * pi with 1000 intervals
+print("|sin| over four periods, crude:", crude, "fine:", fine)
+` },
+
   { name: "take: composed with plots",
     src:
 `# Phrases compile to plain Call nodes, so they slot into any
@@ -485,10 +518,10 @@ CodeMirror.defineSimpleMode('knot', {
     { regex: /-?\b\d+(?:[eE][+-]?\d+)?\b/,           token: 'number' },
     { regex: /\b(True|False|None)\b/,                token: 'atom' },
     // Hard keywords (anything in src/token.hpp's kw map) plus
-    // `take` (a soft keyword that introduces plain-speak phrases;
-    // colored like a keyword for visual recognition even though it
-    // can technically still be used as a variable name).
-    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|and|or|not|take)\b/, token: 'keyword' },
+    // the soft keywords `take` (plain-speak phrases) and `fn`
+    // (anonymous functions). Both can technically still be used as
+    // variable names; colored like keywords for visual recognition.
+    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|and|or|not|take|fn)\b/, token: 'keyword' },
     // Function-definition name in `def NAME(` -- color as 'def' so it
     // stands out from regular variable references.
     { regex: /(?:(?<=\bdef\s))[a-zA-Z_][a-zA-Z0-9_]*/, token: 'def' },

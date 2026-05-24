@@ -1,0 +1,78 @@
+# Anonymous functions `fn(x) -> EXPR` and the closure-shaped `take`
+# phrases that ride on top of them.
+
+test "fn(x) -> x*x assigned and called" {
+    sq = fn(x) -> x * x
+    assert_eq(sq(0), 0)
+    assert_eq(sq(5), 25)
+    assert_eq(sq(-4), 16)
+}
+
+test "fn with multiple params" {
+    add = fn(a, b) -> a + b
+    assert_eq(add(3, 4), 7)
+    hyp = fn(a, b) -> sqrt(a*a + b*b)
+    assert_near(hyp(3.0, 4.0), 5.0)
+}
+
+test "fn passed as a callback (simpson on a lambda)" {
+    pi = 3.14159265358979
+    r = simpson(fn(x) -> sin(x), 0.0, pi, 100)
+    assert_near(r, 2.0, 1e-6)
+}
+
+test "fn captures surrounding env (closure)" {
+    k = 10.0
+    triple_k = fn(x) -> k * x
+    assert_eq(triple_k(3.0), 30.0)
+}
+
+# ---- Closure-shaped take phrases --------------------------------
+
+test "take the integral of x*x from 0 to 1 == 1/3" {
+    r = take the integral of x*x from 0.0 to 1.0
+    assert_near(r, 1.0 / 3.0, 1e-9)
+}
+
+test "take the integral with N intervals" {
+    r = take the integral of x*x from 0.0 to 1.0 with 200 intervals
+    assert_near(r, 1.0 / 3.0, 1e-9)
+}
+
+test "take the integral of sin(x) from 0 to pi == 2" {
+    pi = 3.14159265358979
+    r = take the integral of sin(x) from 0.0 to pi
+    assert_near(r, 2.0, 1e-6)
+}
+
+test "take the integral of exp(-x*x) on [-4, 4] approaches sqrt(pi)" {
+    r = take the integral of exp(-x*x) from -4.0 to 4.0
+    # sqrt(pi) = 1.7724538...
+    assert_near(r, 1.7724538, 1e-4)
+}
+
+test "take the root of x*x - 2 starting at 1 == sqrt(2)" {
+    r = take the root of x*x - 2.0 starting at 1.0
+    assert_near(r, 1.41421356, 1e-7)
+}
+
+test "take the root of cos(x) between 0 and pi == pi/2" {
+    pi = 3.14159265358979
+    r = take the root of cos(x) between 0.0 and pi
+    assert_near(r, pi / 2.0, 1e-8)
+}
+
+test "closure phrase with a single named param other than x" {
+    # The free-variable picker uses whatever name appears -- not
+    # hardcoded to `x`.
+    r = take the integral of t*t from 0.0 to 1.0
+    assert_near(r, 1.0 / 3.0, 1e-9)
+}
+
+test "closure phrase respects builtin filtering (sin is not a free var)" {
+    pi = 3.14159265358979
+    # If `sin` were treated as a free var, we'd get a multi-candidate
+    # error. The hole has one free var: `x`.
+    r = take the integral of sin(x) from 0.0 to pi
+    assert_near(r, 2.0, 1e-6)
+}

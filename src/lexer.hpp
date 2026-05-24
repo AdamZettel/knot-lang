@@ -201,7 +201,10 @@ private:
             case ':': return one(Tok::Colon);
             case '@': return one(Tok::At);
             case '+': return peek(1) == '=' ? two(Tok::PlusEq)  : one(Tok::Plus);
-            case '-': return peek(1) == '=' ? two(Tok::MinusEq) : one(Tok::Minus);
+            case '-':
+                if (peek(1) == '=') return two(Tok::MinusEq);
+                if (peek(1) == '>') return two(Tok::Arrow);
+                return one(Tok::Minus);
             case '*': return peek(1) == '=' ? two(Tok::StarEq)  : one(Tok::Star);
             case '/': return peek(1) == '=' ? two(Tok::SlashEq) : one(Tok::Slash);
             case '%': return one(Tok::Percent);

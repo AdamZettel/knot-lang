@@ -618,6 +618,18 @@ private:
             case ExprKind::Call:   return eval_call(e, env);
             case ExprKind::Slice:
                 throw Diag(e.span, "slice syntax 'a:b' only valid inside '[]'");
+            case ExprKind::FnExpr: {
+                // Build a Function value pointing at the expression
+                // body. The expression is owned by the surrounding
+                // AST, which outlives the interpreter -- raw pointer
+                // is safe.
+                auto f = std::make_shared<Function>();
+                f->params = e.params;
+                f->expr_body = e.lhs.get();
+                f->closure = env;
+                f->name = "<fn>";
+                return Value::fn(f);
+            }
         }
         return Value::nil();
     }
@@ -890,15 +902,23 @@ private:
             }
             if (record_mode) emit_call(f.name, args, e.span);
             Value ret_value;
-            try {
-                run_block(*f.body, frame);
-                ret_value = Value::nil(); // implicit return
-            } catch (ReturnSignal& r) {
-                ret_value = std::move(r.value);
-            } catch (const BreakSignal& b) {
-                throw Diag(b.span, "'break' is not inside a loop");
-            } catch (const ContinueSignal& c) {
-                throw Diag(c.span, "'continue' is not inside a loop");
+            // Expression-body functions (anonymous `fn(x) -> EXPR`)
+            // evaluate the expression in the new frame and return
+            // its value directly. Statement-body functions go
+            // through run_block with the usual ReturnSignal flow.
+            if (f.expr_body) {
+                ret_value = eval(*f.expr_body, frame);
+            } else {
+                try {
+                    run_block(*f.body, frame);
+                    ret_value = Value::nil(); // implicit return
+                } catch (ReturnSignal& r) {
+                    ret_value = std::move(r.value);
+                } catch (const BreakSignal& b) {
+                    throw Diag(b.span, "'break' is not inside a loop");
+                } catch (const ContinueSignal& c) {
+                    throw Diag(c.span, "'continue' is not inside a loop");
+                }
             }
             if (record_mode) emit_ret(f.name, ret_value);
             return ret_value;

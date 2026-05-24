@@ -17,9 +17,18 @@ using EnvPtr = std::shared_ptr<Env>;
 // A user-defined function value. Captures the environment at definition
 // site so closures work. The body and defaults are borrowed from the AST
 // (which outlives execution), hence the raw pointers.
+//
+// Two body shapes are supported:
+//   - statement-list body (`def NAME(params) { ... }`): `body` points
+//     at the statement vector and `expr_body` is null.
+//   - expression body (`fn(x) -> EXPR`): `expr_body` points at the
+//     single expression and `body` is null. Calling such a function
+//     evaluates the expression in a fresh scope and returns its
+//     value; there's no implicit `return`.
 struct Function {
     std::vector<std::string> params;
     const std::vector<StmtPtr>* body = nullptr;
+    const Expr*                 expr_body = nullptr;
     const std::vector<ExprPtr>* param_defaults = nullptr; // same length as params
     EnvPtr closure;
     std::string name; // for error messages

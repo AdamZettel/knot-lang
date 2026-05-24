@@ -1,5 +1,5 @@
 CXX      ?= g++
-CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
 SRC      := src/main.cpp
 HDRS     := $(wildcard src/*.hpp)
 TARGET   := knot

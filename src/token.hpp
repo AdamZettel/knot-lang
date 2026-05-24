@@ -17,6 +17,7 @@ enum class Tok {
     Eq, PlusEq, MinusEq, StarEq, SlashEq,
     EqEq, BangEq, Lt, LtEq, Gt, GtEq,
     Bang, AndAnd, OrOr,
+    Arrow,  // -> (anonymous function bodies: fn(x) -> EXPR)
     // Special
     Eof,
 };
@@ -79,6 +80,7 @@ inline const char* tok_name(Tok t) {
         case Tok::Bang: return "'!'";
         case Tok::AndAnd: return "'&&'";
         case Tok::OrOr: return "'||'";
+        case Tok::Arrow: return "'->'";
         case Tok::Eof: return "end of input";
     }
     return "?";

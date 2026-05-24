@@ -371,6 +371,9 @@ private:
             }
             case ExprKind::Slice:
                 fail(e.span, "slices not supported in --cc v1");
+            case ExprKind::FnExpr:
+                fail(e.span, "anonymous `fn(x) -> EXPR` not supported in "
+                             "--exec yet; run this program with --interp");
         }
         fail(e.span, "internal: unhandled expr kind");
     }

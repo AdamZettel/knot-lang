@@ -479,6 +479,146 @@ private:
         return e;
     }
 
+    // Walk an expression collecting identifier names that look like
+    // free variables -- references to names that are NOT in the
+    // built-in / stdlib known set. Used to derive the parameter name
+    // for closure-shaped phrase holes: in
+    //   take the integral of sin(x) from 0 to pi
+    // the hole `sin(x)` contains a reference to `sin` (known) and
+    // `x` (free). The free-var set is `{x}`, so we wrap the hole as
+    // `fn(x) -> sin(x)`.
+    //
+    // FnExpr parameter names shadow their references and are not
+    // added to the free-var set. Order of first appearance is
+    // preserved so error messages are predictable.
+    static void collect_free_vars(const Expr& e,
+                                  std::vector<std::string>& bound,
+                                  std::vector<std::string>& out) {
+        switch (e.kind) {
+            case ExprKind::Ident: {
+                const std::string& name = e.str;
+                if (is_known_fn_name(name)) return;
+                // Bound by an enclosing FnExpr?
+                for (const auto& b : bound) if (b == name) return;
+                // Already collected?
+                for (const auto& f : out) if (f == name) return;
+                out.push_back(name);
+                return;
+            }
+            case ExprKind::Unary:
+                if (e.rhs) collect_free_vars(*e.rhs, bound, out);
+                return;
+            case ExprKind::Binary:
+                if (e.lhs) collect_free_vars(*e.lhs, bound, out);
+                if (e.rhs) collect_free_vars(*e.rhs, bound, out);
+                return;
+            case ExprKind::Index:
+                if (e.callee) collect_free_vars(*e.callee, bound, out);
+                for (const auto& el : e.elems)
+                    if (el) collect_free_vars(*el, bound, out);
+                return;
+            case ExprKind::Slice:
+                if (e.slice_lo) collect_free_vars(*e.slice_lo, bound, out);
+                if (e.slice_hi) collect_free_vars(*e.slice_hi, bound, out);
+                return;
+            case ExprKind::Call:
+                if (e.callee) collect_free_vars(*e.callee, bound, out);
+                for (const auto& a : e.elems)
+                    if (a) collect_free_vars(*a, bound, out);
+                return;
+            case ExprKind::VecLit:
+                for (const auto& el : e.elems)
+                    if (el) collect_free_vars(*el, bound, out);
+                return;
+            case ExprKind::MatLit:
+                for (const auto& row : e.rows)
+                    for (const auto& el : row)
+                        if (el) collect_free_vars(*el, bound, out);
+                return;
+            case ExprKind::FnExpr: {
+                // Params shadow names from the outer scope; push them
+                // onto `bound`, walk the body, then pop.
+                size_t before = bound.size();
+                for (const auto& p : e.params) bound.push_back(p);
+                if (e.lhs) collect_free_vars(*e.lhs, bound, out);
+                bound.resize(before);
+                return;
+            }
+            case ExprKind::NumberLit:
+            case ExprKind::StringLit:
+            case ExprKind::BoolLit:
+            case ExprKind::NilLit:
+                return;
+        }
+    }
+
+    // Wrap `body` as `fn(var) -> body`. Used by parse_phrase for
+    // closure-shaped holes after picking the parameter via free-var
+    // analysis.
+    static ExprPtr wrap_fn_expr(const std::string& var, ExprPtr body) {
+        Span s = body->span;
+        auto e = std::make_unique<Expr>(ExprKind::FnExpr, s);
+        e->params.push_back(var);
+        e->lhs = std::move(body);
+        return e;
+    }
+
+    // ---- Anonymous functions (`fn(x) -> EXPR`) ---------------------
+    //
+    // Disambiguates `fn` (an Ident) from `fn(x) -> EXPR` (an anonymous
+    // function). The pattern we accept is `fn ( IDENT (, IDENT)* ) ->`;
+    // anything else leaves the input alone so `fn` keeps working as a
+    // regular variable / function name.
+    //
+    // Caller has already verified the current token is `fn` and the
+    // next is `(`. We peek forward to confirm the rest of the header
+    // matches, without consuming any tokens.
+    bool looks_like_fn_expr_header(size_t fn_pos) const {
+        // Walk: fn ( IDENT (, IDENT)* ) ->
+        size_t p = fn_pos + 1; // points at '('
+        if (p >= toks.size() || toks[p].kind != Tok::LParen) return false;
+        ++p;
+        // At least one parameter ident, or an empty parameter list.
+        if (p < toks.size() && toks[p].kind == Tok::Ident) {
+            ++p;
+            while (p < toks.size() && toks[p].kind == Tok::Comma) {
+                ++p;
+                if (p >= toks.size() || toks[p].kind != Tok::Ident) return false;
+                ++p;
+            }
+        }
+        if (p >= toks.size() || toks[p].kind != Tok::RParen) return false;
+        ++p;
+        return p < toks.size() && toks[p].kind == Tok::Arrow;
+    }
+
+    // Parse `fn(x[, y, ...]) -> EXPR`. Current token must be `fn`.
+    ExprPtr parse_fn_expr() {
+        Span start = cur().span;
+        ++pos; // 'fn'
+        expect(Tok::LParen, "'(' in fn(...) -> ...");
+        std::vector<std::string> params;
+        if (!check(Tok::RParen)) {
+            const Token& first = expect(Tok::Ident,
+                "parameter name in fn(...) -> ...");
+            params.push_back(first.text);
+            while (match(Tok::Comma)) {
+                const Token& nxt = expect(Tok::Ident,
+                    "parameter name in fn(...) -> ...");
+                params.push_back(nxt.text);
+            }
+        }
+        expect(Tok::RParen, "')' closing fn(...) parameter list");
+        expect(Tok::Arrow, "'->' before fn(...) body");
+        ExprPtr body = parse_expr();
+
+        auto e = std::make_unique<Expr>(ExprKind::FnExpr,
+            Span::merge(start, body->span));
+        e->params = std::move(params);
+        e->lhs = std::move(body);  // body lives in `lhs` slot
+        return e;
+    }
+
     // ---- Plain-speak phrases (`take ...`) ---------------------------
     //
     // Called from parse_primary when we've decided `take` should
@@ -545,7 +685,8 @@ private:
 
             std::vector<ExprPtr> hole_exprs;
             hole_exprs.reserve(slices.size());
-            for (const auto& [lo, hi] : slices) {
+            for (size_t hi_idx = 0; hi_idx < slices.size(); ++hi_idx) {
+                auto [lo, hi] = slices[hi_idx];
                 // Re-parse the hole's token slice as a knot
                 // expression. Need to terminate it with an Eof so the
                 // sub-parser knows when to stop.
@@ -556,7 +697,40 @@ private:
                 eof_tok.span = phrase_toks[hi - 1].span;
                 sub.push_back(eof_tok);
                 Parser sub_parser(sub);
-                hole_exprs.push_back(sub_parser.parse_expr());
+                ExprPtr hole = sub_parser.parse_expr();
+
+                // Closure-shaped hole? Walk the parsed expression
+                // for free variables, require exactly one, wrap as
+                // fn(VAR) -> HOLE.
+                bool is_closure = false;
+                for (int idx : pat.closure_holes) {
+                    if ((size_t)idx == hi_idx) { is_closure = true; break; }
+                }
+                if (is_closure) {
+                    std::vector<std::string> bound, frees;
+                    collect_free_vars(*hole, bound, frees);
+                    if (frees.size() == 1) {
+                        hole = wrap_fn_expr(frees[0], std::move(hole));
+                    } else if (frees.empty()) {
+                        throw Diag(start,
+                            "`take` closure-phrase: no free variable found "
+                            "in the expression body -- the integrand/equation "
+                            "must depend on at least one unbound name");
+                    } else {
+                        std::string names;
+                        for (size_t i = 0; i < frees.size(); ++i) {
+                            if (i) names += ", ";
+                            names += frees[i];
+                        }
+                        throw Diag(start,
+                            "`take` closure-phrase: multiple candidate "
+                            "free variables (" + names + ") -- knot doesn't "
+                            "know which to use as the parameter. Rewrite "
+                            "using `fn(x) -> ...` and pass directly to the "
+                            "underlying function instead");
+                    }
+                }
+                hole_exprs.push_back(std::move(hole));
             }
 
             auto call = std::make_unique<Expr>(ExprKind::Call,
@@ -648,6 +822,16 @@ private:
                     if (nk == Tok::Ident || nk == Tok::Number) {
                         return parse_phrase();
                     }
+                }
+                // `fn` is a soft keyword: anonymous-function
+                // introducer when the next token is `(` and the
+                // `(IDENT[, IDENT]*) ->` shape is present. Anything
+                // else (including `fn(5)`, `fn`-as-variable) falls
+                // back to normal identifier handling.
+                if (t.text == "fn" && pos + 1 < toks.size()
+                 && toks[pos + 1].kind == Tok::LParen
+                 && looks_like_fn_expr_header(pos)) {
+                    return parse_fn_expr();
                 }
                 ++pos;
                 auto e = std::make_unique<Expr>(ExprKind::Ident, t.span);

@@ -37,7 +37,50 @@ struct PhrasePattern {
     // "sum(?)" -- "?" is replaced by the hole text. Reserved for a
     // later commit that prints these to stderr after each match.
     std::string canonical;
+
+    // Zero-based indices of holes that should be wrapped as an
+    // anonymous function `fn(x) -> HOLE` before being passed to the
+    // call. The matched hole's free-variable analysis determines the
+    // parameter name. Empty for the common case (all holes pass
+    // through as raw expressions).
+    std::vector<int> closure_holes;
 };
+
+// Names known to the runtime: every builtin registered in
+// interpreter.hpp::register_builtins() plus every top-level def in
+// stdlib/stdlib.knot. Used by free-variable analysis for closure-
+// shaped phrase holes: any identifier in the hole that ISN'T in this
+// set is treated as a candidate parameter for the wrapping fn(...).
+//
+// Keep in sync with the two source-of-truth lists. Over-including is
+// safe (a missing free-var candidate just gets dropped); under-
+// including merely produces a friendlier error when the parse fails.
+inline bool is_known_fn_name(const std::string& name) {
+    static const std::vector<std::string> kKnown = {
+        // ---- C++ builtins (interpreter.hpp register_builtins) -----
+        "input", "print", "panic", "plot",
+        "at", "set", "append", "format",
+        "num", "str", "len", "rows", "cols",
+        "zeros", "ones", "eye", "dot", "norm",
+        "matmul", "transpose",
+        "sqrt", "abs", "sin", "cos", "exp", "log",
+        "sort_vec",
+        "rng_seed", "rng_uniform", "rng_normal",
+        "read_csv", "write_csv",
+        // ---- stdlib defs (stdlib/stdlib.knot) ---------------------
+        "sum", "prod", "mean", "vmin", "vmax",
+        "argmin", "argmax", "linspace", "arange",
+        "reverse", "fill", "copy_vec", "copy_mat",
+        "variance", "std", "floor_div", "median", "sort",
+        "trace", "diag", "lu", "solve", "power_iter",
+        "bisect", "newton", "newton_numeric",
+        "trapezoid", "simpson", "rk4", "golden_section",
+        "assert", "assert_msg", "assert_eq",
+        "assert_near", "assert_mat_near",
+    };
+    for (const auto& k : kKnown) if (k == name) return true;
+    return false;
+}
 
 // Pattern table. **Order matters**: more-specific patterns first, so
 // `the L2 norm of _` is tried before `the norm of _`. Within a group,
@@ -86,6 +129,23 @@ inline const std::vector<PhrasePattern>& phrase_table() {
 
         // ---- Linear algebra -------------------------------------
         {{"the", "matrix", "product", "of", "_", "and", "_"}, "matmul", "matmul(?, ?)"},
+
+        // ---- Closure-shaped phrases -----------------------------
+        // The first hole in each of these is an EXPRESSION involving
+        // a single free variable; parse_phrase wraps it as
+        // fn(VAR) -> EXPR before passing to the call. The trailing
+        // 4-arg form for `simpson` must come before the 3-arg form
+        // so its longer literal tail wins the first-match-wins race.
+        //
+        // Pattern                                                                  Function       Canonical                       Closure holes
+        {{"the", "integral", "of", "_", "from", "_", "to", "_", "with", "_", "intervals"},
+            "simpson",        "simpson(?, ?, ?, ?)",         {0}},
+        {{"the", "integral", "of", "_", "from", "_", "to", "_"},
+            "simpson",        "simpson(?, ?, ?)",            {0}},
+        {{"the", "root", "of", "_", "starting", "at", "_"},
+            "newton_numeric", "newton_numeric(?, ?)",        {0}},
+        {{"the", "root", "of", "_", "between", "_", "and", "_"},
+            "bisect",         "bisect(?, ?, ?)",             {0}},
     };
     return kTable;
 }

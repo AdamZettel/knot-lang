@@ -99,6 +99,16 @@ inline void serialize_expr(const Expr& e, std::ostringstream& o) {
             }
             o << ")";
             break;
+        case ExprKind::FnExpr:
+            o << "Fx([";
+            for (size_t i = 0; i < e.params.size(); ++i) {
+                if (i) o << ",";
+                o << e.params[i];
+            }
+            o << "],";
+            if (e.lhs) serialize_expr(*e.lhs, o);
+            o << ")";
+            break;
     }
 }
 

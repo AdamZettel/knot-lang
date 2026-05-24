@@ -26,6 +26,7 @@ enum class ExprKind {
     Index,       // v[i] or m[i, j] or v[a:b]
     Slice,       // a:b (only appears inside Index)
     Call,        // f(a, b)
+    FnExpr,      // fn(x[, y, ...]) -> EXPR   (single-expression closure)
 };
 
 enum class UnOp { Neg, Not };
@@ -52,6 +53,11 @@ struct Expr {
                               // Index: the thing being indexed
     // Slice fields (a:b). Either side may be null for open slices (`:n`, `n:`).
     ExprPtr slice_lo, slice_hi;
+
+    // FnExpr: parameter names live in `params`, the body is a single
+    // expression stored in `lhs` (we reuse the field rather than add
+    // a dedicated one). Captures its surrounding env at eval time.
+    std::vector<std::string> params;
 
     Expr(ExprKind k, Span s) : kind(k), span(s) {}
 };

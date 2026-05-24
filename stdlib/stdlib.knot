@@ -396,6 +396,27 @@ def newton(f, df, x0, tol=1e-10, max_iter=100) {
     return x
 }
 
+def newton_numeric(f, x0, tol=1e-10, max_iter=100) {
+    "Newton's method with a finite-difference derivative. Used by the
+     `take the root of EXPR starting at INIT` phrase so callers don't
+     need to supply a separate derivative function. Step size eps is
+     1e-7, which trades off truncation error against subtraction
+     cancellation roughly optimally for double precision."
+    x = x0
+    eps = 1e-7
+    for _ to max_iter {
+        fx = f(x)
+        if abs(fx) < tol { return x }
+        dfx = (f(x + eps) - f(x - eps)) / (2 * eps)
+        if dfx == 0 {
+            print("newton_numeric: derivative estimate is zero")
+            return x
+        }
+        x = x - fx / dfx
+    }
+    return x
+}
+
 # ===================================================================
 # Numerical integration
 # ===================================================================
