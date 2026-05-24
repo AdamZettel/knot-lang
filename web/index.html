@@ -493,7 +493,7 @@
         <span id="teach-title"></span>
         <span id="teach-progress"></span>
         <span id="teach-peeks"></span>
-        <button id="teach-walk-btn" title="walk to notes (Ctrl+\)">walk to notes</button>
+        <button id="teach-walk-btn" title="walk to notes (F2 or Ctrl+\)">walk to notes (F2)</button>
         <button id="teach-exit" title="exit (Esc)">×</button>
       </div>
       <pre id="teach-score"></pre>
@@ -2592,7 +2592,7 @@ function enterTeachMode(hit, opts) {
   const repNote = (teachRepeat > 1 && stepped)
     ? ` Each step repeats ${teachRepeat} times.` : '';
   const walkNote = teachWalk
-    ? ' Walk mode: target hidden. Click "walk to notes" (Ctrl+\\) to peek;'
+    ? ' Walk mode: target hidden. Press F2 (or Ctrl+\\) or click "walk to notes" to peek;'
     + ' costs ~8s wall time per peek. Per-char coloring is suppressed --'
     + ' feedback is line-level only on Enter.'
     : '';
@@ -2745,9 +2745,14 @@ teachExitBtn.addEventListener('click', () => exitTeachMode(true));
 teachWalkBtn.addEventListener('click', startWalk);
 
 document.addEventListener('keydown', (e) => {
-  // Ctrl/Cmd-\\ triggers a walk to notes while teach is active.
-  // (Backslash is unbound in default browser shortcuts.)
-  if ((e.metaKey || e.ctrlKey) && e.key === '\\' && teachActive && teachWalk) {
+  // Walk-to-notes hotkey while teach is active in walk mode.
+  // F2 is the primary -- single key, easy to reach, no other use.
+  // Ctrl/Cmd-\\ is also bound as a fallback.
+  if (!teachActive || !teachWalk) return;
+  const isF2 = (e.key === 'F2');
+  const isCtrlBackslash =
+    (e.metaKey || e.ctrlKey) && e.key === '\\';
+  if (isF2 || isCtrlBackslash) {
     e.preventDefault();
     startWalk();
   }
