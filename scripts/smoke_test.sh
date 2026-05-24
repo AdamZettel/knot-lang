@@ -327,6 +327,32 @@ GOT=$(./knot /tmp/_append_test.knot 2>&1)
 check "append (interp)" "3 1 two [10, 20]" "$GOT"
 rm -f /tmp/_append_test.knot
 
+echo "== pathology library =="
+
+# Pathologies 01-04 must produce identical output under --interp
+# and --exec (the parity invariant). Pathology 05 (Hilbert solve)
+# is deliberately ill-conditioned -- the matrix amplifies any
+# ulp-level difference in arithmetic and the two backends round
+# subexpressions differently. We run 05 under --interp only.
+for f in examples/pathologies/01_*.knot examples/pathologies/02_*.knot \
+         examples/pathologies/03_*.knot examples/pathologies/04_*.knot; do
+    name=$(basename "$f" .knot)
+    I=$(./knot --no-hints "$f" 2>/dev/null)
+    E=$(./knot --exec --no-hints "$f" 2>/dev/null)
+    if [ "$I" = "$E" ]; then
+        echo "  PASS  $name interp/exec parity"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  $name interp/exec parity"
+        diff <(echo "$I") <(echo "$E") | head -5 | sed 's/^/        /'
+        FAIL=$((FAIL + 1))
+    fi
+done
+
+# 05 must at least run cleanly under --interp.
+GOT=$(./knot --no-hints examples/pathologies/05_hilbert_solve.knot 2>&1 | tail -1)
+check "05_hilbert_solve interp runs" "        etc.)." "$GOT"
+
 echo "== iterate / repeat statements =="
 
 # iterate over collection, iterate from-to-as, and repeat-times all

@@ -1,0 +1,85 @@
+# Pathology 05: solving A x = b where A is a Hilbert matrix is
+# hopelessly ill-conditioned even at modest n. The exact-arithmetic
+# answer is fine; the floating-point answer is junk because the
+# condition number grows roughly as exp(3.5 n).
+
+narrate "Build the n x n Hilbert matrix  H_ij = 1 / (i + j + 1)."
+narrate "Pick x_true = (1, 1, ..., 1). Compute b = H x_true."
+narrate "Solve H x = b. Compare x against x_true."
+narrate "In exact arithmetic the recovery is exact; in double we see"
+narrate "how much (condition number) * (machine epsilon) the rounding"
+narrate "inflates to."
+
+# At n=10 cond(H_n) is ~1.6e13, so the recovered x has lost most of
+# its digits. Note that --interp and --exec produce slightly
+# different recovered errors here -- the matrix amplifies ulp-level
+# differences in intermediate arithmetic, so the two backends
+# disagree on the trailing digits. That disagreement IS the
+# pathology being demonstrated. The pathology smoke check excludes
+# this file from strict interp/exec parity for that reason; the
+# lesson text and the structure of the output are stable.
+n = 10
+
+# Build H. Indices are 0..n-1 so use H_ij = 1 / (i + j + 1).
+H = zeros(n, n)
+for i to n {
+    for j to n {
+        set(H, i, j, 1.0 / (i + j + 1))
+    }
+}
+
+# True solution: all-ones vector.
+x_true = ones(n)
+
+# Right-hand side b = H @ x_true.
+b = H @ x_true
+
+narrate "First three entries of b:"
+b0 = at(b, 0)
+b1 = at(b, 1)
+b2 = at(b, 2)
+show b0
+show b1
+show b2
+
+# Solve.
+x_solved = zeros(n)
+solve(H, b, x_solved)
+
+narrate ""
+narrate "Recovered x_i (should all equal 1); errors x_i - 1:"
+for i to n {
+    xi = at(x_solved, i)
+    err = xi - 1.0
+    show i
+    show xi
+    show err
+}
+
+# Maximum-entry error.
+max_err = 0.0
+for i to n {
+    e = at(x_solved, i) - 1.0
+    if e < 0 { e = -e }
+    if e > max_err { max_err = e }
+}
+narrate ""
+narrate "Maximum absolute error in recovered x:"
+show max_err
+
+# ---- Lesson ------------------------------------------------------
+
+print("")
+print("Lesson: condition number measures how much input error a linear")
+print("        system multiplies into output error. Hilbert matrices")
+print("        are the canonical ill-conditioned family: cond(H_n) ~")
+print("        exp(3.5 n). At n=8 the conditioning is ~3e10 and we've")
+print("        already lost half our digits; at n=12 the conditioning")
+print("        is ~1e16, every digit is noise, and even the two knot")
+print("        execution backends produce visibly different answers")
+print("        because the matrix amplifies ulp-level differences in")
+print("        intermediate arithmetic. The 'fix' isn't a better solver")
+print("        -- it's not asking the question. Reformulate so the")
+print("        matrix is well conditioned (Chebyshev nodes for")
+print("        polynomial fitting, orthogonal bases for least-squares,")
+print("        etc.).")

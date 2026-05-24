@@ -1,0 +1,74 @@
+# Pathology 04: explicit Euler on a stiff linear ODE diverges.
+# y'(t) = -lambda y, y(0) = 1   has exact solution  y(t) = exp(-lambda t).
+# Explicit Euler step:  y_{n+1} = (1 - h lambda) y_n.
+# For stability the multiplier (1 - h lambda) must lie in [-1, 1],
+# i.e. h lambda <= 2. Stiff means lambda is large; the explicit step
+# size has to be tiny to stay stable.
+
+narrate "ODE: y' = -lambda y, y(0) = 1. lambda = 50, step h = 0.05."
+narrate "Stability threshold: h*lambda must be at most 2; here it is 2.5,"
+narrate "so explicit Euler should diverge."
+narrate "Closed form: y(t) = exp(-lambda t).  y(1.5) ~ exp(-75) ~ 1.9e-33."
+
+lam = 50.0
+h   = 0.05
+n   = 30   # final time = n * h = 1.5
+
+# Per-step multipliers.
+mu_explicit = 1.0 - h * lam            # = -1.5
+mu_implicit = 1.0 / (1.0 + h * lam)    # = 1/3.5
+
+narrate "Explicit step multiplier  mu_e = 1 - h*lambda :"
+show mu_explicit
+narrate "  |mu_e| > 1, so each step grows the solution; will blow up."
+
+narrate "Implicit step multiplier  mu_i = 1 / (1 + h*lambda) :"
+show mu_implicit
+narrate "  |mu_i| < 1, so each step decays; stable for any h."
+
+# ---- Walk forward ------------------------------------------------
+
+y_exp = 1.0
+y_imp = 1.0
+t = 0.0
+
+narrate ""
+narrate "Stepping forward. Each row shows the explicit and implicit"
+narrate "iterates after k steps; compare against the exact value."
+narrate ""
+
+for k to n {
+    t = k * h
+    y_exact_k = exp(-lam * t)
+    # Print one row per step. Bare `show` of t, y_exact_k, y_exp, y_imp
+    # gives four lines per iter -- verbose but readable in both interp
+    # and --exec since these are plain shows of scalar values.
+    show k
+    show t
+    show y_exact_k
+    show y_exp
+    show y_imp
+    y_exp = mu_explicit * y_exp
+    y_imp = mu_implicit * y_imp
+}
+
+# Final-time values.
+t_final = n * h
+y_exact_final = exp(-lam * t_final)
+narrate ""
+narrate "Final values at t = 1.5:"
+show y_exact_final
+show y_exp
+show y_imp
+
+# ---- Lesson ------------------------------------------------------
+
+print("")
+print("Lesson: stiff systems have a fastest decay rate that dictates")
+print("        the largest stable step for explicit methods. Pick a")
+print("        step too big and the numerical solution oscillates with")
+print("        growing amplitude -- 30+ orders of magnitude off in this")
+print("        example. Implicit methods absorb the stiff mode by")
+print("        construction (their step is unconditionally stable for")
+print("        this problem) at the cost of solving an equation each")
+print("        step. Match the integrator class to the stiffness.")

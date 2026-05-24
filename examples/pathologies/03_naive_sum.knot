@@ -1,0 +1,89 @@
+# Pathology 03: naive left-to-right summation accumulates error
+# proportional to N * eps; Kahan compensated summation keeps the
+# error O(eps) by tracking and correcting for each addition's
+# truncated low-order bits.
+
+narrate "Add 1.0 a million times, then add 1e16 once."
+narrate "True sum = 1e6 + 1e16 = 10000000001000000."
+narrate "(1e16 is above 2^53 ~= 9e15, so 1.0 is below the running"
+narrate " sum's ulp once it reaches 1e16.)"
+
+n = 1000000
+big_step = 1.0e16
+
+# Build the data once for both algorithms.
+data = ones(n)
+
+# ---- Naive left-to-right summation --------------------------------
+
+naive = 0.0
+iterate over data as xi {
+    naive += xi
+}
+naive += big_step
+
+narrate "Forward order: small contributions first, big_step last."
+narrate "All the 1.0's accumulate into 1e6 exactly. Then we add 1e16."
+narrate "The final sum keeps the 1e6 because the partial sum was still"
+narrate "small when those contributions were folded in."
+show naive
+true_sum_check = big_step + 1.0e6
+forward_error = true_sum_check - naive
+show forward_error
+
+# Reverse: big_step first, then the million small adds. Now most
+# of the small contributions are lost: 1.0 is below the ulp of 1e16.
+reversed = big_step
+iterate over data as xi {
+    reversed += xi
+}
+
+narrate ""
+narrate "Reverse order (big number first):"
+narrate "Each subsequent +1.0 is added to a running sum >= 1e16."
+narrate "ulp(1e16) ~= 2, so 1.0 is below the resolution -- the addition"
+narrate "rounds to either no-change or +2. Most of the million 1.0's"
+narrate "are silently lost."
+show reversed
+true_sum = 1.0e16 + 1.0e6
+reverse_error = true_sum - reversed
+show reverse_error
+
+# ---- Kahan compensated summation ----------------------------------
+
+narrate ""
+narrate "Kahan's compensated summation. We carry a small correction"
+narrate "term `c` that holds the low-order bits the last addition"
+narrate "lost. Before each accumulation we subtract `c` from the new"
+narrate "input, perform the add, and recompute `c` from the rounding"
+narrate "error of that very addition. The algorithm:"
+narrate "    y = xi - c"
+narrate "    t = sum + y"
+narrate "    c = (t - sum) - y       (the bits that got rounded off)"
+narrate "    sum = t"
+narrate "Algebraic identity in exact arithmetic; rescues the lost"
+narrate "low bits in floating-point."
+
+kahan_sum = big_step
+c = 0.0
+iterate over data as xi {
+    y = xi - c
+    t = kahan_sum + y
+    c = (t - kahan_sum) - y
+    kahan_sum = t
+}
+
+show kahan_sum
+kahan_error = true_sum - kahan_sum
+show kahan_error
+
+# ---- Lesson -------------------------------------------------------
+
+print("")
+print("Lesson: floating-point addition is not associative. Adding")
+print("        millions of small contributions to a running total")
+print("        loses information whenever the running total grows")
+print("        enough larger than the next term. Naive summation")
+print("        accumulates error ~ N * eps; Kahan's compensated")
+print("        summation keeps it ~ eps regardless of N at the cost")
+print("        of a constant factor in arithmetic work.")

@@ -1,0 +1,62 @@
+# Pathology 01: catastrophic cancellation in the quadratic formula.
+#
+# For a x^2 + b x + c = 0 with b > 0 and 4 a c << b^2, the smaller
+# root (the one nearest zero) is computed by the textbook formula
+#       r2 = (-b + sqrt(b^2 - 4 a c)) / (2 a)
+# as the difference of two nearly-equal large numbers. Almost every
+# significant digit cancels and the result is junk.
+
+narrate "Quadratic:  x^2 + b x + 1 = 0   with b = 1e8."
+narrate "True roots: r1 ~ -b = -1e8, r2 = 1 / r1 ~ -1e-8."
+
+a = 1.0
+b = 1.0e8
+c = 1.0
+
+# ---- Naive textbook formula --------------------------------------
+
+disc = b * b - 4.0 * a * c
+sq   = sqrt(disc)
+r1_naive = (-b - sq) / (2.0 * a)
+r2_naive = (-b + sq) / (2.0 * a)
+
+narrate "Discriminant b^2 - 4ac is dominated by b^2 = 1e16:"
+show disc
+show sq
+
+narrate "Numerator of r2 is -b + sqrt(b^2 - 4ac):"
+neg_b = -b
+show neg_b
+show sq
+narrate "These two agree to ~16 digits. Subtracting them throws away"
+narrate "every significant digit and leaves only the noise."
+
+show r1_naive
+show r2_naive
+
+narrate "Sanity check: residual of r2_naive in the polynomial."
+residual_naive = r2_naive * r2_naive + b * r2_naive + c
+show residual_naive
+narrate "If r2 were exact, the residual would be zero."
+
+# ---- The fix ------------------------------------------------------
+
+narrate ""
+narrate "Fix: avoid the subtraction. Multiply numerator and denominator"
+narrate "by the conjugate -b - sqrt(b^2 - 4ac). The denominator now ADDS"
+narrate "two same-sign quantities, no cancellation."
+narrate "    r2_fixed = 2c / (-b - sqrt(b^2 - 4ac))"
+
+r2_fixed = 2.0 * c / (-b - sq)
+show r2_fixed
+
+residual_fixed = r2_fixed * r2_fixed + b * r2_fixed + c
+show residual_fixed
+
+# ---- Lesson -------------------------------------------------------
+
+print("")
+print("Lesson: subtracting nearly equal floats keeps only the noise.")
+print("        Rearrange formulas so the dangerous subtraction never happens --")
+print("        rationalize, factor, or pick the algebraically equivalent form")
+print("        whose intermediate values stay well separated in magnitude.")

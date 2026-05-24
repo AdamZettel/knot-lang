@@ -1,0 +1,76 @@
+# Pathology 02: naive variance via the textbook formula
+#       Var(X) = E[X^2] - E[X]^2
+# loses every significant digit when the data has a large mean and
+# a small spread. The two terms are nearly equal and their
+# difference is the same catastrophic cancellation as pathology 01.
+
+narrate "Three data points with mean 1e8 and spread of order 1:"
+narrate "    x = [1e8, 1e8 + 1, 1e8 + 2]"
+narrate "True variance (n-1 divisor): ((-1)^2 + 0^2 + 1^2) / 2 = 1.0."
+
+x = [1.0e8, 1.0e8 + 1.0, 1.0e8 + 2.0]
+n = take the size of x
+
+# ---- Naive: subtract two large squared quantities ------------------
+
+sx = take the sum of x
+# Sum of squares: written as an explicit loop because the codegen
+# (--exec) doesn't currently lower elementwise `*` between two vecs.
+sxx = 0.0
+iterate over x as xi {
+    sxx += xi * xi
+}
+ex    = sx / n
+ex2   = sxx / n
+ex_sq = ex * ex
+
+show sx
+show sxx
+show ex
+show ex2
+show ex_sq
+narrate "E[X^2] and E[X]^2 agree to ~16 digits; subtracting them is"
+narrate "the same catastrophic cancellation as in pathology 01."
+
+naive_var_population = ex2 - ex_sq
+naive_var            = naive_var_population * n / (n - 1)
+show naive_var_population
+show naive_var
+
+# ---- Fix: Welford's online algorithm -------------------------------
+
+narrate ""
+narrate "Fix: Welford's online algorithm. Keep a running mean and a"
+narrate "running sum of squared deviations from the current mean."
+narrate "Each new sample updates both without ever subtracting two"
+narrate "similar large numbers."
+narrate ""
+narrate "Recurrence per sample x_i:"
+narrate "    count += 1"
+narrate "    delta  = x_i - mean"
+narrate "    mean  += delta / count"
+narrate "    m2    += delta * (x_i - mean)    # note: the UPDATED mean"
+
+mean  = 0.0
+m2    = 0.0
+count = 0.0
+iterate over x as xi {
+    count += 1.0
+    delta  = xi - mean
+    mean  += delta / count
+    m2    += delta * (xi - mean)
+}
+
+welford_var = m2 / (n - 1)
+show welford_var
+
+# ---- Lesson -------------------------------------------------------
+
+print("")
+print("Lesson: never compute variance as E[X^2] - E[X]^2 for data")
+print("        with a non-trivial mean. The two moments are nearly")
+print("        equal and the difference keeps almost no significant")
+print("        digits. Welford's online recurrence (or just shifting")
+print("        the data so the mean is near zero before squaring)")
+print("        gives the right answer without ever subtracting two")
+print("        large near-equals.")
