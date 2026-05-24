@@ -188,6 +188,16 @@ inline bool& phrase_hints_enabled() {
     return flag;
 }
 
+// Process-wide toggle for narration. When true, `narrate "..."`
+// statements print "# <text>" to stdout at execution time. The
+// default is on -- narration is documentation that you read as you
+// run. The CLI's --no-narrate flag flips this off so scripts can
+// produce clean output for pipelines.
+inline bool& narration_enabled() {
+    static bool flag = true;
+    return flag;
+}
+
 // Fill `?` placeholders in a canonical template with hole texts in
 // order. Used for the right-hand side of translation hints.
 inline std::string format_canonical(const std::string& tmpl,

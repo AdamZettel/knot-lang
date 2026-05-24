@@ -222,6 +222,11 @@ inline void serialize_stmt(const Stmt& s, std::ostringstream& o) {
             }
             o << ")";
             break;
+        case StmtKind::Narrate:
+            o << "Nr(";
+            if (s.expr) serialize_expr(*s.expr, o);
+            o << ")";
+            break;
     }
 }
 

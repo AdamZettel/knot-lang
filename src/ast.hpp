@@ -80,6 +80,7 @@ enum class StmtKind {
     Continue,   // continue;  (skips to the next iteration of same)
     TestDecl,   // test "name" { body }   (collected by --test; no-op otherwise)
     Show,       // show EXPR[, EXPR...]   (debug print: "label: value" per arg)
+    Narrate,    // narrate EXPR           (inline algorithm narration; prints "# text")
 };
 
 // For-statement form. The parser decides which one at parse time based on

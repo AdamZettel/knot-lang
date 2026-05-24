@@ -115,6 +115,7 @@ private:
                 {"True", Tok::True}, {"False", Tok::False}, {"None", Tok::None_},
                 {"test", Tok::Test},
                 {"show", Tok::Show},
+                {"narrate", Tok::Narrate},
                 // Python-style word operators, alongside symbol forms.
                 {"and", Tok::AndAnd}, {"or", Tok::OrOr}, {"not", Tok::Bang},
             };

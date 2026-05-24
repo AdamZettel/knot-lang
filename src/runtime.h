@@ -188,6 +188,13 @@ static inline void knot_print_str(const char* s) {
 
 static inline void knot_print_newline(void) { putchar('\n'); }
 
+// Runtime toggle for `narrate` statements. The transpiler emits
+// `if (knot_narration_on) { ... }` around each narrate's prints so
+// --no-narrate at runtime suppresses them without recompiling. The
+// default is 1 (on); a --no-narrate option in a future launcher
+// would set this to 0 at startup.
+static int knot_narration_on = 1;
+
 // ---- Math forwards ------------------------------------------------------
 
 static inline double knot_abs(double x)  { return fabs(x); }

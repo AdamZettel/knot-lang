@@ -1,0 +1,54 @@
+# `narrate EXPR` is for inline algorithm narration. It prints
+# "# <text>" to stdout when narration is enabled (default on).
+# This file mostly verifies that narrate is parsed, executed, and
+# doesn't crash or interfere with surrounding code. Output-content
+# checks live in scripts/smoke_test.sh (where stdout is captured).
+
+test "narrate string literal does not crash" {
+    narrate "computing something important"
+    assert_eq(1 + 1, 2)
+}
+
+test "narrate runs alongside other statements" {
+    x = 5
+    narrate "set up x"
+    y = x * 2
+    narrate "y is twice x"
+    assert_eq(y, 10)
+}
+
+test "narrate evaluating an expression with format()" {
+    n = 7
+    narrate format("loop iteration %d", n)
+    assert_eq(n, 7)
+}
+
+test "narrate with string concatenation" {
+    label = "step"
+    narrate label + " complete"
+    assert(True)
+}
+
+test "narrate inside a for loop fires each iteration" {
+    s = 0
+    for i to 3 {
+        narrate format("iteration %d", i)
+        s += i
+    }
+    assert_eq(s, 3)
+}
+
+test "narrate inside a function" {
+    def f(x) {
+        narrate "inside f"
+        return x * x
+    }
+    assert_eq(f(4), 16)
+}
+
+test "non-string arg is format_value'd" {
+    # `narrate 42` should print "# 42" rather than erroring.
+    narrate 42
+    narrate [1, 2, 3]
+    assert(True)
+}

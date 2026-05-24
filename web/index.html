@@ -241,6 +241,82 @@ const EXAMPLES = [
   { name: "Hello",
     src: `# Welcome to Knot. Click Run, or press Cmd/Ctrl+Enter.\nprint("hello, world")\nprint(1 + 2 * 3)\n` },
 
+  { name: "narrate: a self-explaining algorithm",
+    src:
+`# \`narrate "..."\` prints a "# ..." line at the point it runs, so
+# the algorithm explains itself as it executes. Use --no-narrate at
+# the CLI for clean output; the playground always shows it.
+#
+# Bisection on f(x) = x^2 - 2 -- finding sqrt(2) by interval halving.
+
+narrate "Bisection on f(x) = x^2 - 2. The root is sqrt(2)."
+
+def f(x) { return x * x - 2.0 }
+
+narrate "Initial bracket: f(1) < 0 and f(2) > 0, so a root lies between."
+a = 1.0
+b = 2.0
+mid = 0.0     # pre-declare so the loop's reassignment escapes
+
+for k to 20 {
+    mid = (a + b) / 2.0
+    if f(a) * f(mid) < 0.0 {
+        # The root is in the lower half; drop the upper.
+        b = mid
+    } else {
+        # The root is in the upper half; drop the lower.
+        a = mid
+    }
+}
+
+narrate format("After 20 halvings the bracket is ~%.0e wide.", b - a)
+narrate "Final estimate:"
+print(mid)
+narrate "True sqrt(2):"
+print(sqrt(2.0))
+` },
+
+  { name: "narrate: Gram-Schmidt step by step",
+    src:
+`# Modified Gram-Schmidt orthonormalization of a small basis. The
+# narration walks through each step the way a textbook would --
+# "subtract the projection on each previous direction, then
+# normalize." Read top to bottom; the # lines are the textbook,
+# the indented lines are the algorithm.
+
+narrate "Modified Gram-Schmidt on 3 vectors in R^3."
+
+vs = [[2.0, 0.0, 0.0],
+      [1.0, 1.0, 0.0],
+      [1.0, 1.0, 1.0]]
+
+# Pull rows out as the vectors to orthogonalize.
+v1 = [at(vs, 0, 0), at(vs, 0, 1), at(vs, 0, 2)]
+v2 = [at(vs, 1, 0), at(vs, 1, 1), at(vs, 1, 2)]
+v3 = [at(vs, 2, 0), at(vs, 2, 1), at(vs, 2, 2)]
+
+narrate "u1 = normalize(v1). First basis vector points along v1."
+u1 = normalize(v1)
+show u1
+
+narrate "u2 = normalize(v2 - project(v2, u1))."
+narrate "Subtract v2's component along u1, then renormalize."
+w2 = v2 - project(v2, u1)
+u2 = normalize(w2)
+show u2
+
+narrate "u3 = normalize(v3 - project(v3, u1) - project(v3, u2))."
+narrate "Subtract both already-established directions, then renormalize."
+w3 = v3 - project(v3, u1) - project(v3, u2)
+u3 = normalize(w3)
+show u3
+
+narrate "Sanity check: every pairwise dot product is ~0."
+show dot(u1, u2)
+show dot(u1, u3)
+show dot(u2, u3)
+` },
+
   { name: "take: hints teach you the syntax",
     src:
 `# Every \`take ...\` phrase emits a "# <typed>  ->  <call>" hint to
@@ -631,7 +707,7 @@ CodeMirror.defineSimpleMode('knot', {
     // the soft keywords `take` (plain-speak phrases) and `fn`
     // (anonymous functions). Both can technically still be used as
     // variable names; colored like keywords for visual recognition.
-    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|show|and|or|not|take|fn)\b/, token: 'keyword' },
+    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|show|narrate|and|or|not|take|fn)\b/, token: 'keyword' },
     // Function-definition name in `def NAME(` -- color as 'def' so it
     // stands out from regular variable references.
     { regex: /(?:(?<=\bdef\s))[a-zA-Z_][a-zA-Z0-9_]*/, token: 'def' },

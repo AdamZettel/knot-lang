@@ -8,7 +8,7 @@ enum class Tok {
     // Literals
     Number, String, Ident,
     // Keywords
-    If, Else, While, Loop, As, For, To, In, Def, Return, Break, Continue, True, False, None_, Test, Show,
+    If, Else, While, Loop, As, For, To, In, Def, Return, Break, Continue, True, False, None_, Test, Show, Narrate,
     // Punctuation
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     Comma, Semicolon, Colon, Newline,
@@ -51,6 +51,7 @@ inline const char* tok_name(Tok t) {
         case Tok::None_: return "'None'";
         case Tok::Test: return "'test'";
         case Tok::Show: return "'show'";
+        case Tok::Narrate: return "'narrate'";
         case Tok::LParen: return "'('";
         case Tok::RParen: return "')'";
         case Tok::LBrace: return "'{'";

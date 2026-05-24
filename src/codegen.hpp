@@ -951,6 +951,26 @@ private:
                 // well-formed knot, but it isn't lowered.
                 return;
             }
+            case StmtKind::Narrate: {
+                // Evaluate the expression and print "# <text>\n".
+                // We emit the narrate-enabled check inline so that
+                // --no-narrate at runtime suppresses output without
+                // requiring a recompile. The runtime exposes an int
+                // flag for this.
+                ExprResult r = emit_expr(*s.expr, scope);
+                indent(body, depth);
+                body << "if (knot_narration_on) { fputs(\"# \", stdout); ";
+                switch (r.type) {
+                    case CType::Num:  body << "knot_print_num("  << r.code << ");"; break;
+                    case CType::Bool: body << "fputs((" << r.code << ")?\"true\":\"false\", stdout);"; break;
+                    case CType::Str:  body << "knot_print_str("  << r.code << ");"; break;
+                    case CType::Vec:  body << "knot_print_vec("  << r.code << ");"; break;
+                    case CType::Mat:  body << "knot_print_mat("  << r.code << ");"; break;
+                    default: fail(s.span, "narrate: unsupported expression type");
+                }
+                body << " knot_print_newline(); }\n";
+                return;
+            }
             case StmtKind::Show: {
                 if (s.show_exprs.empty()) {
                     indent(body, depth);

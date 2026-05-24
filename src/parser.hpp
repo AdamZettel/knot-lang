@@ -72,9 +72,10 @@ private:
         if (check(Tok::Return)) return parse_return();
         if (check(Tok::Break))  return parse_break();
         if (check(Tok::Continue)) return parse_continue();
-        if (check(Tok::Test))   return parse_test();
-        if (check(Tok::Show))   return parse_show();
-        if (check(Tok::LBrace)) return parse_block();
+        if (check(Tok::Test))    return parse_test();
+        if (check(Tok::Show))    return parse_show();
+        if (check(Tok::Narrate)) return parse_narrate();
+        if (check(Tok::LBrace))  return parse_block();
 
         // Expression statement, plain assignment, or compound assignment.
         Span start = cur().span;
@@ -320,6 +321,20 @@ private:
         auto s = std::make_unique<Stmt>(StmtKind::TestDecl, start);
         s->name = name.text;
         s->body = std::move(body);
+        return s;
+    }
+
+    // narrate EXPR   -- inline algorithm narration. Evaluates EXPR
+    // (a string-valued expression) and prints "# <text>" to stdout
+    // when narration is enabled (default on). The "why" beside the
+    // "what" -- a programmer reading the code sees the algorithm
+    // narrate itself as the program runs.
+    StmtPtr parse_narrate() {
+        Span start = cur().span;
+        ++pos; // 'narrate'
+        auto s = std::make_unique<Stmt>(StmtKind::Narrate, start);
+        s->expr = parse_expr();
+        expect_terminator("narrate");
         return s;
     }
 

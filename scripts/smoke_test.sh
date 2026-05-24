@@ -327,6 +327,34 @@ GOT=$(./knot /tmp/_append_test.knot 2>&1)
 check "append (interp)" "3 1 two [10, 20]" "$GOT"
 rm -f /tmp/_append_test.knot
 
+echo "== narrate statement =="
+
+# narrate fires on stdout in source order; --no-narrate suppresses.
+# The interp test includes a format() string (interp-only feature);
+# the --exec test sticks to plain string literals since format isn't
+# in the codegen path yet.
+cat > /tmp/_nar.knot <<'EOF'
+narrate "setup"
+x = 5
+narrate format("x is %d", x)
+print(x * 2)
+EOF
+GOT=$(./knot /tmp/_nar.knot 2>&1 | tr '\n' '|')
+check "narrate (interp, default on)" "# setup|# x is 5|10|" "$GOT"
+GOT=$(./knot --no-narrate /tmp/_nar.knot 2>&1 | tr '\n' '|')
+check "--no-narrate suppresses" "10|" "$GOT"
+rm -f /tmp/_nar.knot
+
+cat > /tmp/_nar_exec.knot <<'EOF'
+narrate "starting up"
+x = 5
+narrate "x has been set"
+print(x * 2)
+EOF
+GOT=$(./knot --exec /tmp/_nar_exec.knot 2>/dev/null | tr '\n' '|')
+check "narrate (--exec, literal strings)" "# starting up|# x has been set|10|" "$GOT"
+rm -f /tmp/_nar_exec.knot /tmp/knot__nar_exec.*
+
 echo "== show statement =="
 
 # The show statement labels each arg with its verbatim source text.

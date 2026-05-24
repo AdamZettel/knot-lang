@@ -4,6 +4,7 @@
 #include "diag.hpp"
 #include "hash.hpp"
 #include "linalg.hpp"
+#include "phrases.hpp"
 #include "value.hpp"
 #include <algorithm>
 #include <cctype>
@@ -519,6 +520,19 @@ private:
                         (i < s.show_labels.size() ? s.show_labels[i] : "<expr>");
                     std::cout << label << ": " << format_value(v) << "\n";
                 }
+                return;
+            }
+            case StmtKind::Narrate: {
+                // `narrate EXPR` evaluates EXPR (string-valued) and
+                // prints "# <text>" when narration is enabled. If
+                // EXPR isn't a string we format_value it so users
+                // can drop arbitrary values into narration without
+                // explicit str() wrapping.
+                if (!narration_enabled()) return;
+                Value v = eval(*s.expr, env);
+                std::cout << "# "
+                          << (v.is_str() ? v.as_str() : format_value(v))
+                          << "\n";
                 return;
             }
         }
