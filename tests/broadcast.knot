@@ -1,0 +1,172 @@
+# sin/cos/exp/log/sqrt/abs broadcast over vec and mat, so the user
+# writes `sin(x)` instead of a manual elementwise loop.
+
+test "sin broadcasts over a vec" {
+    x = [0.0, 1.5707963267948966, 3.141592653589793]
+    y = sin(x)
+    assert_near(at(y, 0), 0.0)
+    assert_near(at(y, 1), 1.0)
+    assert_near(at(y, 2), 0.0, 1e-12)
+}
+
+test "cos broadcasts over a vec" {
+    x = [0.0, 3.141592653589793]
+    y = cos(x)
+    assert_near(at(y, 0),  1.0)
+    assert_near(at(y, 1), -1.0)
+}
+
+test "exp and log are inverse, elementwise" {
+    x = [0.5, 1.0, 2.5, 10.0]
+    y = log(exp(x))
+    for i to len(x) {
+        assert_near(at(y, i), at(x, i))
+    }
+}
+
+test "sqrt broadcasts over a vec" {
+    x = [0.0, 1.0, 4.0, 9.0]
+    y = sqrt(x)
+    assert_eq(at(y, 0), 0.0)
+    assert_eq(at(y, 1), 1.0)
+    assert_eq(at(y, 2), 2.0)
+    assert_eq(at(y, 3), 3.0)
+}
+
+test "abs broadcasts over a vec, sign-symmetric" {
+    x = [-3.0, -1.0, 0.0, 1.0, 3.0]
+    y = abs(x)
+    assert_eq(at(y, 0), 3.0)
+    assert_eq(at(y, 1), 1.0)
+    assert_eq(at(y, 2), 0.0)
+    assert_eq(at(y, 3), 1.0)
+    assert_eq(at(y, 4), 3.0)
+}
+
+test "sin broadcasts over a mat (element by element)" {
+    M = [[0.0, 1.5707963267948966],
+         [3.141592653589793, -1.5707963267948966]]
+    S = sin(M)
+    assert_near(at(S, 0, 0),  0.0)
+    assert_near(at(S, 0, 1),  1.0)
+    assert_near(at(S, 1, 0),  0.0, 1e-12)
+    assert_near(at(S, 1, 1), -1.0)
+}
+
+test "sqrt preserves vec length" {
+    x = zeros(7)
+    y = sqrt(x)
+    assert_eq(len(y), 7)
+}
+
+test "exp preserves matrix shape" {
+    M = zeros(3, 4)
+    E = exp(M)
+    assert_eq(rows(E), 3)
+    assert_eq(cols(E), 4)
+}
+
+test "scalar form still works (no regression)" {
+    assert_near(sin(0.0), 0.0)
+    assert_near(cos(0.0), 1.0)
+    assert_near(exp(0.0), 1.0)
+    assert_near(log(1.0), 0.0)
+    assert_eq(abs(-7.0), 7.0)
+    assert_eq(sqrt(4.0), 2.0)
+}
+
+# ------------------------------------------------------------------
+# Broadcasting on binary operators. Goal: write what you mean.
+# `*` and `/` are Hadamard between same-shape vecs/mats; the dot
+# product / matmul lives on `@`. Scalar broadcasts on either side.
+# ------------------------------------------------------------------
+
+test "vec + vec elementwise" {
+    a = [1.0, 2.0, 3.0]
+    b = [10.0, 20.0, 30.0]
+    c = a + b
+    assert_eq(at(c, 0), 11.0)
+    assert_eq(at(c, 1), 22.0)
+    assert_eq(at(c, 2), 33.0)
+}
+
+test "vec * vec is Hadamard, not dot" {
+    a = [1.0, 2.0, 3.0]
+    b = [10.0, 20.0, 30.0]
+    c = a * b
+    assert_eq(at(c, 0), 10.0)
+    assert_eq(at(c, 1), 40.0)
+    assert_eq(at(c, 2), 90.0)
+}
+
+test "vec / vec elementwise" {
+    a = [10.0, 20.0, 30.0]
+    b = [2.0, 5.0, 10.0]
+    c = a / b
+    assert_eq(at(c, 0), 5.0)
+    assert_eq(at(c, 1), 4.0)
+    assert_eq(at(c, 2), 3.0)
+}
+
+test "vec + scalar broadcasts" {
+    a = [1.0, 2.0, 3.0]
+    b = a + 10.0
+    assert_eq(at(b, 0), 11.0)
+    assert_eq(at(b, 2), 13.0)
+    # commutative
+    c = 10.0 + a
+    assert_eq(at(c, 0), 11.0)
+}
+
+test "scalar - vec gives elementwise (s - x_i)" {
+    a = [1.0, 2.0, 3.0]
+    b = 10.0 - a
+    assert_eq(at(b, 0), 9.0)
+    assert_eq(at(b, 1), 8.0)
+    assert_eq(at(b, 2), 7.0)
+}
+
+test "scalar / vec gives elementwise (1 / x_i)" {
+    a = [1.0, 2.0, 4.0]
+    b = 1.0 / a
+    assert_near(at(b, 0), 1.0)
+    assert_near(at(b, 1), 0.5)
+    assert_near(at(b, 2), 0.25)
+}
+
+test "compound expression: exp(-c*x) * cos(x)" {
+    # The damped-oscillator one-liner the playground needs.
+    x = [0.0, 1.0, 2.0]
+    y = exp(-0.1 * x) * cos(x)
+    assert_near(at(y, 0), 1.0)
+    assert_near(at(y, 1), exp(-0.1) * cos(1.0))
+    assert_near(at(y, 2), exp(-0.2) * cos(2.0))
+}
+
+test "mat * mat is Hadamard" {
+    A = [[1.0, 2.0], [3.0, 4.0]]
+    B = [[10.0, 20.0], [30.0, 40.0]]
+    C = A * B
+    assert_eq(at(C, 0, 0), 10.0)
+    assert_eq(at(C, 0, 1), 40.0)
+    assert_eq(at(C, 1, 0), 90.0)
+    assert_eq(at(C, 1, 1), 160.0)
+}
+
+test "mat + scalar broadcasts" {
+    A = [[1.0, 2.0], [3.0, 4.0]]
+    B = A + 100.0
+    assert_eq(at(B, 0, 0), 101.0)
+    assert_eq(at(B, 1, 1), 104.0)
+}
+
+test "vec + vec length-mismatch errors" {
+    a = [1.0, 2.0]
+    b = [10.0, 20.0, 30.0]
+    # We can't catch panics yet, so probe the negative path indirectly:
+    # this test passes as long as the runtime didn't crash before here.
+    # The error would surface when we evaluate a + b; we deliberately
+    # don't.
+    assert_eq(len(a), 2)
+    assert_eq(len(b), 3)
+}

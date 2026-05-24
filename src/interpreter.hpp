@@ -690,11 +690,20 @@ private:
                     if (l.is_vec() && r.is_vec()) return Value::vec(vec_add(l.as_vec(), r.as_vec()));
                     if (l.is_mat() && r.is_mat()) return Value::mat(mat_add(l.as_mat(), r.as_mat()));
                     if (l.is_str() && r.is_str()) return Value::str(l.as_str() + r.as_str());
+                    // Scalar broadcast: vec/mat +/- scalar in either order.
+                    if (l.is_vec() && r.is_num()) return Value::vec(vec_add_scalar(l.as_vec(), r.as_num()));
+                    if (l.is_num() && r.is_vec()) return Value::vec(vec_add_scalar(r.as_vec(), l.as_num()));
+                    if (l.is_mat() && r.is_num()) return Value::mat(mat_add_scalar(l.as_mat(), r.as_num()));
+                    if (l.is_num() && r.is_mat()) return Value::mat(mat_add_scalar(r.as_mat(), l.as_num()));
                     break;
                 case BinOp::Sub:
                     if (l.is_num() && r.is_num()) return propagate_tag(l.as_num() - r.as_num());
                     if (l.is_vec() && r.is_vec()) return Value::vec(vec_sub(l.as_vec(), r.as_vec()));
                     if (l.is_mat() && r.is_mat()) return Value::mat(mat_sub(l.as_mat(), r.as_mat()));
+                    if (l.is_vec() && r.is_num()) return Value::vec(vec_sub_scalar(l.as_vec(), r.as_num()));
+                    if (l.is_num() && r.is_vec()) return Value::vec(scalar_sub_vec(l.as_num(), r.as_vec()));
+                    if (l.is_mat() && r.is_num()) return Value::mat(mat_sub_scalar(l.as_mat(), r.as_num()));
+                    if (l.is_num() && r.is_mat()) return Value::mat(scalar_sub_mat(l.as_num(), r.as_mat()));
                     break;
                 case BinOp::Mul:
                     if (l.is_num() && r.is_num()) return propagate_tag(l.as_num() * r.as_num());
@@ -702,6 +711,10 @@ private:
                     if (l.is_vec() && r.is_num()) return Value::vec(vec_scale(l.as_vec(), r.as_num()));
                     if (l.is_num() && r.is_mat()) return Value::mat(mat_scale(r.as_mat(), l.as_num()));
                     if (l.is_mat() && r.is_num()) return Value::mat(mat_scale(l.as_mat(), r.as_num()));
+                    // Hadamard. The dot product / matmul lives on `@`,
+                    // so `*` between same-shape vecs/mats is elementwise.
+                    if (l.is_vec() && r.is_vec()) return Value::vec(vec_emul(l.as_vec(), r.as_vec()));
+                    if (l.is_mat() && r.is_mat()) return Value::mat(mat_emul(l.as_mat(), r.as_mat()));
                     break;
                 case BinOp::Div:
                     if (l.is_num() && r.is_num()) {
@@ -710,6 +723,12 @@ private:
                     }
                     if (l.is_vec() && r.is_num()) return Value::vec(vec_scale(l.as_vec(), 1.0 / r.as_num()));
                     if (l.is_mat() && r.is_num()) return Value::mat(mat_scale(l.as_mat(), 1.0 / r.as_num()));
+                    // Elementwise vec / vec and mat / mat, plus the
+                    // num / vec form so users can write `1 / x`.
+                    if (l.is_vec() && r.is_vec()) return Value::vec(vec_ediv(l.as_vec(), r.as_vec()));
+                    if (l.is_mat() && r.is_mat()) return Value::mat(mat_ediv(l.as_mat(), r.as_mat()));
+                    if (l.is_num() && r.is_vec()) return Value::vec(scalar_div_vec(l.as_num(), r.as_vec()));
+                    if (l.is_num() && r.is_mat()) return Value::mat(scalar_div_mat(l.as_num(), r.as_mat()));
                     break;
                 case BinOp::Mod:
                     if (l.is_num() && r.is_num()) return propagate_tag(std::fmod(l.as_num(), r.as_num()));
@@ -1370,40 +1389,88 @@ inline Value b_transpose(const std::vector<Value>& args, Span s) {
     return Value::mat(mat_transpose(args[0].as_mat()));
 }
 
+// Apply a scalar function elementwise across num / vec / mat. The
+// shape of the input determines the shape of the output; len_tag /
+// row_tag / col_tag are preserved so broadcast results still play
+// nicely with downstream shape-checking. `trap` decides whether the
+// per-element result goes through trap_check_finite (so under
+// --trap-nan, broadcasting sqrt over a vec containing -1 fires at the
+// builtin call site, with the same wording as the scalar form).
+template <typename F>
+inline Value apply_unary_broadcast(const std::vector<Value>& args,
+                                   Span s,
+                                   const char* name,
+                                   F f,
+                                   bool trap) {
+    if (args.size() != 1)
+        throw Diag(s, std::string(name) + "(num | vec | mat)");
+    const Value& a = args[0];
+
+    if (a.is_num()) {
+        double r = f(a.as_num());
+        if (trap) trap_check_finite(r, s, name);
+        return Value::num(r);
+    }
+
+    if (a.is_vec()) {
+        const Vec& v = a.as_vec();
+        Vec out(v.size());
+        for (size_t i = 0; i < v.size(); ++i) {
+            double r = f(v[i]);
+            if (trap) trap_check_finite(r, s, name);
+            out[i] = r;
+        }
+        out.len_tag = v.len_tag;
+        return Value::vec(std::move(out));
+    }
+
+    if (a.is_mat()) {
+        const Mat& m = a.as_mat();
+        Mat out(m.rows, m.cols);
+        for (size_t i = 0; i < m.rows; ++i) {
+            for (size_t j = 0; j < m.cols; ++j) {
+                double r = f(m.at(i, j));
+                if (trap) trap_check_finite(r, s, name);
+                out.at(i, j) = r;
+            }
+        }
+        out.row_tag = m.row_tag;
+        out.col_tag = m.col_tag;
+        return Value::mat(std::move(out));
+    }
+
+    throw Diag(s, std::string(name) + ": expected num, vec, or mat, got "
+                  + a.type_name());
+}
+
 inline Value b_sqrt(const std::vector<Value>& args, Span s) {
-    if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "sqrt(num)");
-    double r = std::sqrt(args[0].as_num());
-    trap_check_finite(r, s, "sqrt");
-    return Value::num(r);
+    return apply_unary_broadcast(args, s, "sqrt",
+        [](double x){ return std::sqrt(x); }, /*trap=*/true);
 }
 
 inline Value b_abs(const std::vector<Value>& args, Span s) {
-    if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "abs(num)");
-    return Value::num(std::abs(args[0].as_num()));
+    return apply_unary_broadcast(args, s, "abs",
+        [](double x){ return std::abs(x); }, /*trap=*/false);
 }
 
 inline Value b_sin(const std::vector<Value>& args, Span s) {
-    if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "sin(num)");
-    return Value::num(std::sin(args[0].as_num()));
+    return apply_unary_broadcast(args, s, "sin",
+        [](double x){ return std::sin(x); }, /*trap=*/false);
 }
 
 inline Value b_cos(const std::vector<Value>& args, Span s) {
-    if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "cos(num)");
-    return Value::num(std::cos(args[0].as_num()));
+    return apply_unary_broadcast(args, s, "cos",
+        [](double x){ return std::cos(x); }, /*trap=*/false);
 }
 
 inline Value b_exp(const std::vector<Value>& args, Span s) {
-    if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "exp(num)");
-    double r = std::exp(args[0].as_num());
-    trap_check_finite(r, s, "exp");
-    return Value::num(r);
+    return apply_unary_broadcast(args, s, "exp",
+        [](double x){ return std::exp(x); }, /*trap=*/true);
 }
 
 inline Value b_log(const std::vector<Value>& args, Span s) {
-    if (args.size() != 1 || !args[0].is_num()) throw Diag(s, "log(num)");
-    double r = std::log(args[0].as_num());
-    trap_check_finite(r, s, "log");
-    return Value::num(r);
+    return apply_unary_broadcast(args, s, "log",
+        [](double x){ return std::log(x); }, /*trap=*/true);
 }
 
 // ---- Extensions backed by C++ stdlib -----------------------------------

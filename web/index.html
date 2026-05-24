@@ -305,35 +305,22 @@ print(v)
 
   { name: "Plot: sin and cos",
     src:
-`# Sample sin and cos over [0, 2 pi]. plot(x, y, "label") emits a
-# trace; multiple plot() calls overlay on the same axes.
+`# sin and cos broadcast over a vec, so the whole sample-and-plot
+# routine collapses to four lines. plot(x, y, "label") emits a trace;
+# multiple plot() calls overlay on the same axes.
 pi = 3.14159265358979
-n  = 400
-x  = linspace(0.0, 2.0 * pi, n)
-
-ys = zeros(n)
-yc = zeros(n)
-for i to n {
-    t = at(x, i)
-    set(ys, i, sin(t))
-    set(yc, i, cos(t))
-}
-
-plot(x, ys, "sin")
-plot(x, yc, "cos")
+x  = linspace(0.0, 2.0 * pi, 400)
+plot(x, sin(x), "sin")
+plot(x, cos(x), "cos")
 ` },
 
   { name: "Plot: damped oscillator",
     src:
-`# Solution to y'' + 0.4 y' + y = 0 over [0, 20], sampled. Demonstrates
-# a vec built from a closed-form expression plotted directly.
-n = 800
-x = linspace(0.0, 20.0, n)
-y = zeros(n)
-for i to n {
-    t = at(x, i)
-    set(y, i, exp(-0.2 * t) * cos(t))
-}
+`# y(t) = exp(-0.2 t) cos t -- closed-form solution to a damped
+# oscillator. Every math op here broadcasts over the vec: scalar*vec,
+# exp(vec), vec*vec elementwise. Write what you mean.
+x = linspace(0.0, 20.0, 800)
+y = exp(-0.2 * x) * cos(x)
 plot(x, y, "exp(-0.2t) cos t")
 ` },
 

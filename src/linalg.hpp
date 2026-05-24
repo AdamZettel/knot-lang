@@ -80,6 +80,52 @@ inline Vec vec_scale(const Vec& a, double s) {
     return r;
 }
 
+// Elementwise vec ops. `*` and `/` between two vecs are Hadamard; the
+// dot product lives on `@`. `+` / `-` work with a scalar on either
+// side so `1 - x` and `x - 1` both broadcast. Length-mismatch is a
+// runtime error with a length-vs-length message.
+inline Vec vec_emul(const Vec& a, const Vec& b) {
+    if (a.size() != b.size())
+        throw std::runtime_error("vector size mismatch in '*': "
+            + std::to_string(a.size()) + " vs " + std::to_string(b.size()));
+    Vec r(a.size());
+    for (size_t i = 0; i < a.size(); ++i) r[i] = a[i] * b[i];
+    return r;
+}
+
+inline Vec vec_ediv(const Vec& a, const Vec& b) {
+    if (a.size() != b.size())
+        throw std::runtime_error("vector size mismatch in '/': "
+            + std::to_string(a.size()) + " vs " + std::to_string(b.size()));
+    Vec r(a.size());
+    for (size_t i = 0; i < a.size(); ++i) r[i] = a[i] / b[i];
+    return r;
+}
+
+inline Vec vec_add_scalar(const Vec& a, double s) {
+    Vec r(a.size());
+    for (size_t i = 0; i < a.size(); ++i) r[i] = a[i] + s;
+    return r;
+}
+
+inline Vec vec_sub_scalar(const Vec& a, double s) {
+    Vec r(a.size());
+    for (size_t i = 0; i < a.size(); ++i) r[i] = a[i] - s;
+    return r;
+}
+
+inline Vec scalar_sub_vec(double s, const Vec& a) {
+    Vec r(a.size());
+    for (size_t i = 0; i < a.size(); ++i) r[i] = s - a[i];
+    return r;
+}
+
+inline Vec scalar_div_vec(double s, const Vec& a) {
+    Vec r(a.size());
+    for (size_t i = 0; i < a.size(); ++i) r[i] = s / a[i];
+    return r;
+}
+
 inline double vec_dot(const Vec& a, const Vec& b) {
     if (a.size() != b.size())
         throw std::runtime_error("vector size mismatch in 'dot': "
@@ -120,6 +166,52 @@ inline Mat mat_sub(const Mat& a, const Mat& b) {
 inline Mat mat_scale(const Mat& a, double s) {
     Mat r(a.rows, a.cols);
     for (size_t k = 0; k < a.data.size(); ++k) r.data[k] = a.data[k] * s;
+    return r;
+}
+
+// Same family as the vec helpers above, but for matrices. `*` and
+// `/` are Hadamard; matmul is `@`. Scalar +/-/* /  broadcasts.
+inline Mat mat_emul(const Mat& a, const Mat& b) {
+    if (a.rows != b.rows || a.cols != b.cols)
+        throw std::runtime_error("matrix shape mismatch in '*': "
+            + std::to_string(a.rows) + "x" + std::to_string(a.cols) + " vs "
+            + std::to_string(b.rows) + "x" + std::to_string(b.cols));
+    Mat r(a.rows, a.cols);
+    for (size_t k = 0; k < a.data.size(); ++k) r.data[k] = a.data[k] * b.data[k];
+    return r;
+}
+
+inline Mat mat_ediv(const Mat& a, const Mat& b) {
+    if (a.rows != b.rows || a.cols != b.cols)
+        throw std::runtime_error("matrix shape mismatch in '/': "
+            + std::to_string(a.rows) + "x" + std::to_string(a.cols) + " vs "
+            + std::to_string(b.rows) + "x" + std::to_string(b.cols));
+    Mat r(a.rows, a.cols);
+    for (size_t k = 0; k < a.data.size(); ++k) r.data[k] = a.data[k] / b.data[k];
+    return r;
+}
+
+inline Mat mat_add_scalar(const Mat& a, double s) {
+    Mat r(a.rows, a.cols);
+    for (size_t k = 0; k < a.data.size(); ++k) r.data[k] = a.data[k] + s;
+    return r;
+}
+
+inline Mat mat_sub_scalar(const Mat& a, double s) {
+    Mat r(a.rows, a.cols);
+    for (size_t k = 0; k < a.data.size(); ++k) r.data[k] = a.data[k] - s;
+    return r;
+}
+
+inline Mat scalar_sub_mat(double s, const Mat& a) {
+    Mat r(a.rows, a.cols);
+    for (size_t k = 0; k < a.data.size(); ++k) r.data[k] = s - a.data[k];
+    return r;
+}
+
+inline Mat scalar_div_mat(double s, const Mat& a) {
+    Mat r(a.rows, a.cols);
+    for (size_t k = 0; k < a.data.size(); ++k) r.data[k] = s / a.data[k];
     return r;
 }
 
