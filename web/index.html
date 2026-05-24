@@ -220,6 +220,10 @@
     display: block;
   }
   #teach-score .current .ln-num { color: #ff9e64; }
+  /* Out-of-scope: staircase lines past the current step's reach.
+     Even dimmer than pending so the visible "build-up" is clear. */
+  #teach-score .oos { color: #2d3148; }
+  #teach-score .oos .ln-num { color: #2d3148; }
 
   #teach-current {
     padding: 10px 14px;
@@ -1996,8 +2000,9 @@ function runConsoleCommand(argv) {
       '  cat METHOD            -- print the source of METHOD',
       '  load METHOD           -- replace the editor with METHOD',
       '  paste METHOD          -- append METHOD to the editor',
-      '  teach METHOD [-r N]   -- line-by-line typing practice, N passes per line',
-      '  wb METHOD [-r N]      -- alias for teach (whiteboard)',
+      '  teach METHOD [-r N] [-s] -- typing practice; -r repeats line N times,',
+      '                              -s staircase (1, 1-2, 1-2-3, ...)',
+      '  wb METHOD [-r N] [-s]    -- alias for teach (whiteboard)',
       '  reveal                -- exit teach mode, paste source',
       '  clear                 -- clear console history',
       '',
@@ -2066,9 +2071,10 @@ function runConsoleCommand(argv) {
   }
 
   if (cmd === 'teach' || cmd === 'wb') {
-    // Parse: teach METHOD [-r N]
-    let method = null;
-    let repeat = 1;
+    // Parse: teach METHOD [-r N] [-s]
+    let method   = null;
+    let repeat   = 1;
+    let staircase = false;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       if (a === '-r' || a === '--repeat') {
@@ -2078,7 +2084,7 @@ function runConsoleCommand(argv) {
           return;
         }
         repeat = n;
-      } else if (a.startsWith('-r')) {
+      } else if (a.startsWith('-r') && a !== '-r') {
         // Allow `-r3` glued together.
         const n = parseInt(a.slice(2), 10);
         if (!Number.isInteger(n) || n < 1 || n > 50) {
@@ -2086,6 +2092,8 @@ function runConsoleCommand(argv) {
           return;
         }
         repeat = n;
+      } else if (a === '-s' || a === '--staircase') {
+        staircase = true;
       } else if (!method) {
         method = a;
       } else {
@@ -2094,12 +2102,12 @@ function runConsoleCommand(argv) {
       }
     }
     if (!method) {
-      writeConsole('usage: teach METHOD [-r N]', 'err');
+      writeConsole('usage: teach METHOD [-r N] [-s]', 'err');
       return;
     }
     const hit = findMethod(method);
     if (!hit) { writeConsole(`unknown method '${method}'`, 'err'); return; }
-    enterTeachMode(hit, repeat);
+    enterTeachMode(hit, { repeat, staircase });
     return;
   }
 
@@ -2157,6 +2165,13 @@ let teachLines   = [];
 let teachLineIdx = 0;
 let teachPass    = 1;          // current pass on the current line (1-indexed)
 let teachRepeat  = 1;          // passes per line, set from -r on the teach command
+// Staircase mode: each "step" walks lines 1..stairStep from the top,
+// growing one line per step until the whole algorithm is covered.
+// Trains sequencing: what comes after what.
+let teachStaircase = false;
+let typeableIdxs   = [];       // indices of non-skippable lines in teachLines
+let stairStep      = 1;        // current step (== number of lines in scope, 1..typeableIdxs.length)
+let stairLine      = 0;        // index within typeableIdxs we're typing this step
 
 // Lines that don't merit retyping in teach mode -- the user reads
 // them in the score but doesn't drill them. Comments and blanks.
@@ -2188,15 +2203,21 @@ function startCurrentLine() {
 }
 
 function renderTeachScore() {
-  // Render every line with its line number and a state class:
-  // done / current / pending. Pending uses the parent dim color
-  // so it doesn't need a class.
+  // Per-line state: done / current / pending / oos (out of scope,
+  // only used in staircase mode for lines beyond the current step's
+  // reach). Pending uses the parent dim color and needs no class.
+  // The staircase scope is `typeableIdxs[stairStep - 1]` --
+  // everything past that line is "future" content not yet drilled.
+  const stairTop = (teachStaircase && stairStep <= typeableIdxs.length)
+    ? typeableIdxs[stairStep - 1]
+    : Infinity;
   const out = [];
   for (let i = 0; i < teachLines.length; i++) {
     const num = String(i + 1).padStart(3, ' ');
     let cls;
     if (i < teachLineIdx)       cls = 'done';
     else if (i === teachLineIdx) cls = 'current';
+    else if (i > stairTop)       cls = 'oos';
     else                         cls = 'pending';
     out.push(
       `<span class="${cls}"><span class="ln-num">${num}</span>` +
@@ -2204,7 +2225,6 @@ function renderTeachScore() {
     );
   }
   teachScore.innerHTML = out.join('\n');
-  // Scroll the current line into view.
   const currentEl = teachScore.querySelector('.current');
   if (currentEl) currentEl.scrollIntoView({ block: 'center' });
 }
@@ -2235,38 +2255,68 @@ function renderTeachTyped() {
 }
 
 function updateTeachProgress() {
-  // Count typeable (non-skippable) lines, and how many are done.
-  let total = 0, done = 0;
-  for (let i = 0; i < teachLines.length; i++) {
-    if (isSkippable(teachLines[i])) continue;
-    total++;
-    if (i < teachLineIdx) done++;
-  }
-  let text = `line ${Math.min(done + 1, total)} / ${total}`;
-  if (teachRepeat > 1 && teachLineIdx < teachLines.length) {
-    text += `  ·  pass ${teachPass} / ${teachRepeat}`;
+  const total = typeableIdxs.length;
+  let text;
+  if (teachStaircase) {
+    text = `step ${Math.min(stairStep, total)} / ${total}` +
+           `  ·  line ${stairLine + 1} / ${stairStep}`;
+  } else {
+    let done = 0;
+    for (let i = 0; i < teachLines.length; i++) {
+      if (isSkippable(teachLines[i])) continue;
+      if (i < teachLineIdx) done++;
+    }
+    text = `line ${Math.min(done + 1, total)} / ${total}`;
+    if (teachRepeat > 1 && teachLineIdx < teachLines.length) {
+      text += `  ·  pass ${teachPass} / ${teachRepeat}`;
+    }
   }
   teachProgress.textContent = text;
 }
 
-function enterTeachMode(hit, repeat) {
+function enterTeachMode(hit, opts) {
+  opts = opts || {};
   teachActive  = hit;
   teachLines   = hit.entry.source.replace(/\n$/, '').split('\n');
-  teachLineIdx = nextRealLine(0);
+  teachStaircase = !!opts.staircase;
+  teachRepeat    = (Number.isInteger(opts.repeat) && opts.repeat >= 1) ? opts.repeat : 1;
   teachPass    = 1;
-  teachRepeat  = (Number.isInteger(repeat) && repeat >= 1) ? repeat : 1;
+
+  // Index the typeable lines so staircase steps and progress
+  // counts speak the same units.
+  typeableIdxs = [];
+  for (let i = 0; i < teachLines.length; i++) {
+    if (!isSkippable(teachLines[i])) typeableIdxs.push(i);
+  }
+
+  if (teachStaircase) {
+    stairStep = 1;
+    stairLine = 0;
+    teachLineIdx = (typeableIdxs.length > 0) ? typeableIdxs[0] : teachLines.length;
+  } else {
+    stairStep = 0;
+    stairLine = 0;
+    teachLineIdx = nextRealLine(0);
+  }
+
   document.body.classList.add('teach-mode');
   teachTitle.textContent = `teach: ${hit.cat}/${hit.key}`;
   updateTeachProgress();
   renderTeachScore();
   startCurrentLine();
-  // Defer focus so the panel's display:flex is applied first.
   setTimeout(() => teachInput.focus(), 0);
-  const repeatNote = teachRepeat > 1
-    ? ` Each line needs ${teachRepeat} clean passes.`
-    : ' (Add `-r N` to teach for N passes per line.)';
+
+  // Tell the console which mode is engaged.
+  let note;
+  if (teachStaircase) {
+    note = ` Staircase: step 1 starts with line 1; each step adds the next line on top.`;
+  } else if (teachRepeat > 1) {
+    note = ` Each line needs ${teachRepeat} clean passes.`;
+  } else {
+    note = ' (Add `-r N` for repetitions per line, `-s` for staircase.)';
+  }
   writeConsole(
-    `teach mode: ${hit.cat}/${hit.key}.` + repeatNote +
+    `teach mode: ${hit.cat}/${hit.key}.` + note +
     ' Enter to advance, Tab for 4 spaces, Esc exits.', 'ok');
 }
 
@@ -2298,21 +2348,48 @@ function teachAdvance() {
     );
     return;
   }
-  // Match. If we still owe more passes on this line, restart it.
+
+  // ---- Staircase mode ---------------------------------------------
+  if (teachStaircase) {
+    stairLine++;
+    if (stairLine < stairStep) {
+      // Still within this step: move to the next line in scope.
+      teachLineIdx = typeableIdxs[stairLine];
+      updateTeachProgress();
+      renderTeachScore();
+      startCurrentLine();
+      return;
+    }
+    // Reached the end of this step. Either bump the step and restart
+    // from the top, or finish if we've covered everything.
+    stairStep++;
+    stairLine = 0;
+    if (stairStep > typeableIdxs.length) {
+      writeConsole(
+        `teach: completed staircase for ${teachActive.cat}/${teachActive.key}.`,
+        'ok');
+      exitTeachMode(true);
+      return;
+    }
+    teachLineIdx = typeableIdxs[0];
+    updateTeachProgress();
+    renderTeachScore();
+    startCurrentLine();
+    return;
+  }
+
+  // ---- Standard mode (with optional -r repetition) ---------------
   if (teachPass < teachRepeat) {
     teachPass++;
     updateTeachProgress();
     startCurrentLine();
     return;
   }
-  // All passes done; advance to the next typeable line.
   teachPass    = 1;
   teachLineIdx = nextRealLine(teachLineIdx + 1);
   updateTeachProgress();
   renderTeachScore();
   if (teachLineIdx >= teachLines.length) {
-    // Completed all lines: drop back to the editor with the full
-    // source pasted so the user can run it.
     writeConsole(
       `teach: completed ${teachActive.cat}/${teachActive.key}.`, 'ok');
     exitTeachMode(true);
