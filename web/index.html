@@ -25,9 +25,10 @@
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<!-- Plotly is loaded from CDN. ~3MB, served gzipped; cached across
-     reloads. Used to render `plot(x, y)` calls from knot programs. -->
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<!-- Plotly is loaded lazily on the first plot() call (see
+     ensurePlotly() in the script block below). It's ~3MB so we
+     don't want to pull it on every page hit when most sessions
+     don't end up using it. -->
 
 <!-- CodeMirror 5 + a small simple-mode grammar for knot. We load CM
      core + the simple-mode addon but NOT a theme CSS file -- the
@@ -1604,12 +1605,36 @@ function extractPlots(text) {
   return { clean: cleanLines.join('\n'), traces };
 }
 
+// Plotly is large (~3MB ungzipped); defer loading it until the first
+// plot() call. Subsequent calls return the cached resolved promise.
+let plotlyLoading = null;
+function ensurePlotly() {
+  if (window.Plotly) return Promise.resolve();
+  if (plotlyLoading) return plotlyLoading;
+  plotlyLoading = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
+    s.async = true;
+    s.onload  = () => res();
+    s.onerror = () => rej(new Error('failed to load Plotly from CDN'));
+    document.head.appendChild(s);
+  });
+  return plotlyLoading;
+}
+
 // Render the collected traces. Empty array -> hide plot, show placeholder.
-function renderPlot(traces) {
+async function renderPlot(traces) {
   if (!traces.length) {
     plotWrap.classList.add('empty');
     plotDiv.innerHTML = '';
     plotPh.style.display = '';
+    return;
+  }
+  plotPh.textContent = '(loading Plotly...)';
+  try {
+    await ensurePlotly();
+  } catch (e) {
+    plotPh.textContent = e.message;
     return;
   }
   plotWrap.classList.remove('empty');

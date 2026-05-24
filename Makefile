@@ -35,9 +35,15 @@ test: $(TARGET)
 # e.g. `python3 -m http.server 8000 --directory web` -- and open
 # http://localhost:8000.
 #
+# Produces TWO files: web/knot.js (small loader) and web/knot.wasm
+# (the actual module). The browser fetches them in parallel and
+# compiles the WASM via its native streaming path -- considerably
+# faster than the SINGLE_FILE embed-as-base64 approach.
+#
 # Flags:
 #   -O2                       optimization parity with the native build
-#   -sSINGLE_FILE=1           embed the wasm in the .js, so one fetch
+#   -fexceptions              C++ throw/catch -- the interpreter relies
+#                             on ReturnSignal/BreakSignal/Diag throws
 #   -sMODULARIZE=1            export Knot() factory rather than dirtying
 #                             the global scope on load
 #   -sEXPORT_NAME='Knot'      name of the factory the playground awaits
@@ -50,12 +56,10 @@ wasm: $(WASM_SRC) $(HDRS) $(EMBED)
 	@mkdir -p web
 	$(EMCC) $(CXXFLAGS) -fexceptions -o $(WASM_OUT) $(WASM_SRC) \
 	  -fexceptions \
-	  -sSINGLE_FILE=1 \
 	  -sMODULARIZE=1 \
 	  -sEXPORT_NAME='Knot' \
 	  -sNO_EXIT_RUNTIME=1 \
 	  -sALLOW_MEMORY_GROWTH=1 \
-	  -sASSERTIONS=1 \
 	  -sEXPORTED_FUNCTIONS="['_knot_run','_knot_free','_malloc','_free']" \
 	  -sEXPORTED_RUNTIME_METHODS="['ccall','UTF8ToString']"
 
