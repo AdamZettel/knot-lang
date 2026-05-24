@@ -10,10 +10,16 @@ namespace knot {
 
 class Parser {
     const std::vector<Token>& toks;
+    // Source text (used only for source-slice queries like
+    // labeling the args of `show`). Optional; when null the parser
+    // falls back to a tag based on the first token's text.
+    const std::string* source = nullptr;
     size_t pos = 0;
 
 public:
     explicit Parser(const std::vector<Token>& t) : toks(t) {}
+    Parser(const std::vector<Token>& t, const std::string& src)
+        : toks(t), source(&src) {}
 
     std::vector<StmtPtr> parse_program() {
         std::vector<StmtPtr> out;
@@ -66,6 +72,7 @@ private:
         if (check(Tok::Break))  return parse_break();
         if (check(Tok::Continue)) return parse_continue();
         if (check(Tok::Test))   return parse_test();
+        if (check(Tok::Show))   return parse_show();
         if (check(Tok::LBrace)) return parse_block();
 
         // Expression statement, plain assignment, or compound assignment.
@@ -313,6 +320,50 @@ private:
         s->name = name.text;
         s->body = std::move(body);
         return s;
+    }
+
+    // show EXPR [, EXPR ...]   -- debug-print each expression as
+    // "<source text>: <value>". The label for each arg is the
+    // verbatim source slice the user typed, captured at parse time;
+    // mirrors the `{x=}` shorthand other languages have but without
+    // requiring a special format-string syntax.
+    StmtPtr parse_show() {
+        Span start = cur().span;
+        ++pos; // 'show'
+        auto s = std::make_unique<Stmt>(StmtKind::Show, start);
+
+        // Parse comma-separated expressions, capturing each one's
+        // source slice for the label. Bare `show` with no args
+        // prints a blank line, mirroring `print()` with no args.
+        if (!check(Tok::Newline) && !check(Tok::Semicolon)
+         && !check(Tok::Eof) && !check(Tok::RBrace)) {
+            s->show_labels.push_back(label_for(parse_show_one(s)));
+            while (match(Tok::Comma)) {
+                s->show_labels.push_back(label_for(parse_show_one(s)));
+            }
+        }
+        expect_terminator("show");
+        return s;
+    }
+
+    // Helper: parse one expression for a show stmt, push it into the
+    // stmt's show_exprs, and return its span so the caller can
+    // extract the label text. Kept separate from label_for() to keep
+    // the parsing and labeling concerns visible at the call site.
+    Span parse_show_one(std::unique_ptr<Stmt>& s) {
+        ExprPtr e = parse_expr();
+        Span sp = e->span;
+        s->show_exprs.push_back(std::move(e));
+        return sp;
+    }
+
+    // Extract the verbatim source text for the given span. Falls back
+    // to "<expr>" if no source is available (in re-parsed phrase-hole
+    // sub-parsers, for example).
+    std::string label_for(Span sp) const {
+        if (!source) return "<expr>";
+        if (sp.start + sp.length > source->size()) return "<expr>";
+        return source->substr(sp.start, sp.length);
     }
 
     StmtPtr parse_block() {

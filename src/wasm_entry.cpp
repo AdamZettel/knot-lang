@@ -40,7 +40,7 @@ static bool load_stdlib_into(Interpreter& interp, std::vector<std::vector<StmtPt
     try {
         Lexer lex(src);
         auto toks = lex.tokenize();
-        Parser p(toks);
+        Parser p(toks, src);
         auto program = p.parse_program();
         interp.run(program);
         retained.push_back(std::move(program));
@@ -83,7 +83,7 @@ char* knot_run(const char* src_c) {
         if (load_stdlib_into(interp, retained)) {
             Lexer lex(src);
             auto toks = lex.tokenize();
-            Parser p(toks);
+            Parser p(toks, src);
             auto program = p.parse_program();
             interp.run(program);
             retained.push_back(std::move(program));

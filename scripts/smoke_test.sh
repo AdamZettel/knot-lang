@@ -327,6 +327,22 @@ GOT=$(./knot /tmp/_append_test.knot 2>&1)
 check "append (interp)" "3 1 two [10, 20]" "$GOT"
 rm -f /tmp/_append_test.knot
 
+echo "== show statement =="
+
+# The show statement labels each arg with its verbatim source text.
+cat > /tmp/_show_test.knot <<'EOF'
+x = 5
+y = 10
+show x
+show x + y
+show x, y, x * y
+EOF
+GOT=$(./knot /tmp/_show_test.knot 2>&1 | tr '\n' '|')
+check "show (interp)" "x: 5|x + y: 15|x: 5|y: 10|x * y: 50|" "$GOT"
+GOT=$(./knot --exec /tmp/_show_test.knot 2>/dev/null | tr '\n' '|')
+check "show (--exec)" "x: 5|x + y: 15|x: 5|y: 10|x * y: 50|" "$GOT"
+rm -f /tmp/_show_test.knot /tmp/knot__show_test.*
+
 echo
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = "0" ]

@@ -33,7 +33,7 @@ static bool load_stdlib(Interpreter& interp) {
     try {
         Lexer lex(src);
         auto toks = lex.tokenize();
-        Parser p(toks);
+        Parser p(toks, src);
         auto program = p.parse_program();
         interp.run(program);
         g_retained.push_back(std::move(program));
@@ -69,7 +69,7 @@ static int run_source(const std::string& filename, const std::string& src,
         if (!trace_path.empty()) interp.enable_record(trace_file);
         Lexer lex(src);
         auto toks = lex.tokenize();
-        Parser p(toks);
+        Parser p(toks, src);
         auto program = p.parse_program();
         interp.run(program);
         g_retained.push_back(std::move(program));
@@ -112,7 +112,7 @@ static int dump_hashes(const std::string& filename, const std::string& src) {
     try {
         Lexer lex(src);
         auto toks = lex.tokenize();
-        Parser p(toks);
+        Parser p(toks, src);
         auto program = p.parse_program();
 
         std::vector<std::string> lines;
@@ -217,7 +217,7 @@ static int scaffold(const std::string& filename, const std::string& src) {
     try {
         Lexer lex(src);
         auto toks = lex.tokenize();
-        Parser p(toks);
+        Parser p(toks, src);
         auto program = p.parse_program();
 
         // Split source into lines for previews.
@@ -311,7 +311,7 @@ static int show(const std::string& filename, const std::string& src) {
     try {
         Lexer lex(src);
         auto toks = lex.tokenize();
-        Parser p(toks);
+        Parser p(toks, src);
         auto program = p.parse_program();
 
         Annotations annots = load_annotations(std::string(filename) + ".annot");
@@ -447,7 +447,7 @@ static int repl() {
             try {
                 Lexer lex(src);
                 auto toks = lex.tokenize();
-                Parser p(toks);
+                Parser p(toks, src);
                 auto program = p.parse_program();
                 interp.run(program);
                 g_retained.push_back(std::move(program));
@@ -483,7 +483,7 @@ static int repl() {
             try {
                 Lexer lex(wrapped);
                 auto toks = lex.tokenize();
-                Parser p(toks);
+                Parser p(toks, wrapped);
                 auto program = p.parse_program();
                 interp.run(program);
                 g_retained.push_back(std::move(program));
@@ -508,13 +508,13 @@ static int transpile_to_c(const std::string& filename, const std::string& src,
         std::string stdlib_src = kStdlibSource;
         Lexer slex(stdlib_src);
         auto stoks = slex.tokenize();
-        Parser sp(stoks);
+        Parser sp(stoks, stdlib_src);
         auto stdlib_program = sp.parse_program();
 
         // Then parse the user source.
         Lexer lex(src);
         auto toks = lex.tokenize();
-        Parser p(toks);
+        Parser p(toks, src);
         auto program = p.parse_program();
 
         // Concatenate: stdlib first, then user code. Codegen treats this
@@ -753,12 +753,12 @@ int main(int argc, char** argv) {
                 std::string stdlib_src = kStdlibSource;
                 Lexer slex(stdlib_src);
                 auto stoks = slex.tokenize();
-                Parser sp(stoks);
+                Parser sp(stoks, stdlib_src);
                 auto stdlib_program = sp.parse_program();
 
                 Lexer lex(src);
                 auto toks = lex.tokenize();
-                Parser p(toks);
+                Parser p(toks, src);
                 auto program = p.parse_program();
 
                 std::vector<StmtPtr> combined;
@@ -789,7 +789,7 @@ int main(int argc, char** argv) {
                 if (!load_stdlib(interp)) return 1;
                 Lexer lex(src);
                 auto toks = lex.tokenize();
-                Parser p(toks);
+                Parser p(toks, src);
                 auto program = p.parse_program();
                 int failed = interp.run_tests(program, filename);
                 g_retained.push_back(std::move(program));

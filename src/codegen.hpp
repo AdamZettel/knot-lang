@@ -951,6 +951,40 @@ private:
                 // well-formed knot, but it isn't lowered.
                 return;
             }
+            case StmtKind::Show: {
+                if (s.show_exprs.empty()) {
+                    indent(body, depth);
+                    body << "knot_print_newline();\n";
+                    return;
+                }
+                for (size_t i = 0; i < s.show_exprs.size(); ++i) {
+                    ExprResult r = emit_expr(*s.show_exprs[i], scope);
+                    const std::string& label =
+                        (i < s.show_labels.size() ? s.show_labels[i] : "<expr>");
+                    // Escape backslash and double-quote for embedding
+                    // in a C string literal. Other characters pass
+                    // through; labels are user-typed knot source so
+                    // unprintable bytes are not a realistic concern.
+                    std::string esc;
+                    esc.reserve(label.size() + 2);
+                    for (char c : label) {
+                        if (c == '\\' || c == '"') esc += '\\';
+                        esc += c;
+                    }
+                    indent(body, depth);
+                    body << "fputs(\"" << esc << ": \", stdout); ";
+                    switch (r.type) {
+                        case CType::Num:  body << "knot_print_num("  << r.code << ");"; break;
+                        case CType::Bool: body << "fputs((" << r.code << ")?\"true\":\"false\", stdout);"; break;
+                        case CType::Str:  body << "knot_print_str("  << r.code << ");"; break;
+                        case CType::Vec:  body << "knot_print_vec("  << r.code << ");"; break;
+                        case CType::Mat:  body << "knot_print_mat("  << r.code << ");"; break;
+                        default: fail(s.span, "show: unsupported type");
+                    }
+                    body << " knot_print_newline();\n";
+                }
+                return;
+            }
         }
     }
 

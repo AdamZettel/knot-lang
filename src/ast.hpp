@@ -79,6 +79,7 @@ enum class StmtKind {
     Break,      // break;     (exits the nearest enclosing for/while/loop)
     Continue,   // continue;  (skips to the next iteration of same)
     TestDecl,   // test "name" { body }   (collected by --test; no-op otherwise)
+    Show,       // show EXPR[, EXPR...]   (debug print: "label: value" per arg)
 };
 
 // For-statement form. The parser decides which one at parse time based on
@@ -107,6 +108,13 @@ struct Stmt {
     // binder for InBoth.
     ForForm for_form = ForForm::ToCount;
     std::string elem_name;
+
+    // Show fields. `show_exprs` holds the comma-separated expressions
+    // the user wrote; `show_labels` holds their source text, captured
+    // at parse time so debug output is "label: value" without the
+    // user having to type the name twice.
+    std::vector<ExprPtr> show_exprs;
+    std::vector<std::string> show_labels;
 
     Stmt(StmtKind k, Span s) : kind(k), span(s) {}
 };

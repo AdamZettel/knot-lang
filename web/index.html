@@ -321,6 +321,41 @@ print(take the dot product of u and w)
 print(take the inner product of u and w)
 ` },
 
+  { name: "show: labeled debug-print",
+    src:
+`# \`show EXPR\` prints "EXPR: value" using the verbatim source text
+# as the label. No need to type the variable name twice in a string
+# and an argument like \`print("x: ", x)\`.
+
+x = 5
+y = 10
+show x
+show y
+show x + y
+
+# Comma-separated for multiple lines in one statement.
+show x, y, x * y
+
+# Works with vec / mat / phrase results too.
+v = [1.0, 2.0, 3.0, 4.0]
+show v
+show take the mean of v
+show take the standard deviation of v
+
+# A typical debugging flow: drop a few \`show\` lines into a function
+# body to see what's flowing through.
+def quad(a, b, c, x) {
+    t1 = a * x * x
+    t2 = b * x
+    show t1
+    show t2
+    show c
+    return t1 + t2 + c
+}
+result = quad(2.0, -1.0, 3.0, 4.0)
+show result
+` },
+
   { name: "take: integrals and roots",
     src:
 `# Closure-shaped phrases. The expression after \`of\` is the
@@ -521,7 +556,7 @@ CodeMirror.defineSimpleMode('knot', {
     // the soft keywords `take` (plain-speak phrases) and `fn`
     // (anonymous functions). Both can technically still be used as
     // variable names; colored like keywords for visual recognition.
-    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|and|or|not|take|fn)\b/, token: 'keyword' },
+    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|show|and|or|not|take|fn)\b/, token: 'keyword' },
     // Function-definition name in `def NAME(` -- color as 'def' so it
     // stands out from regular variable references.
     { regex: /(?:(?<=\bdef\s))[a-zA-Z_][a-zA-Z0-9_]*/, token: 'def' },

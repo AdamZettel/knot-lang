@@ -505,6 +505,22 @@ private:
                 // The body is only executed by run_tests() under --test mode.
                 return;
             }
+            case StmtKind::Show: {
+                // `show EXPR1, EXPR2, ...` prints one line per arg in
+                // the form "<source text>: <value>". Bare `show` with
+                // no args prints a blank line.
+                if (s.show_exprs.empty()) {
+                    std::cout << "\n";
+                    return;
+                }
+                for (size_t i = 0; i < s.show_exprs.size(); ++i) {
+                    Value v = eval(*s.show_exprs[i], env);
+                    const std::string& label =
+                        (i < s.show_labels.size() ? s.show_labels[i] : "<expr>");
+                    std::cout << label << ": " << format_value(v) << "\n";
+                }
+                return;
+            }
         }
     }
 

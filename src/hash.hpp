@@ -214,6 +214,14 @@ inline void serialize_stmt(const Stmt& s, std::ostringstream& o) {
             serialize_block(s.body, o);
             o << ")";
             break;
+        case StmtKind::Show:
+            o << "Sh(";
+            for (size_t i = 0; i < s.show_exprs.size(); ++i) {
+                if (i) o << ",";
+                serialize_expr(*s.show_exprs[i], o);
+            }
+            o << ")";
+            break;
     }
 }
 
