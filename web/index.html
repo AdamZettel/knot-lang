@@ -156,49 +156,113 @@
     position: relative;     /* so the teach-mode ghost can absolute */
   }
 
-  /* Teach mode: a dimmed reference rendered behind the CodeMirror
-     editor. The user retypes the algorithm fresh; the ghost lets
-     them read it through the gaps in their own typing.
-     #teach-ghost is the viewport clipper (overflow hidden); the
-     inner pre carries the actual text and is translated on every
-     CM scroll to track the editor's content offset. Font, line
-     height, and left padding are set from CM's computed style at
-     teach-mode entry so the lines align character-for-character. */
-  #teach-ghost {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: 0;
-    background: transparent;
+  /* Teach mode: a dedicated practice panel that replaces the editor
+     when active. Piano-style line-by-line repetition: a "score" of
+     all lines on top, the current target line, a typed line showing
+     per-character right/wrong, and an invisible input that captures
+     keystrokes. Enter advances on a full match. */
+  #teach-panel {
+    flex: 1;
+    min-height: 0;
     display: none;
+    flex-direction: column;
+    background: var(--bg);
   }
-  #teach-ghost-text {
-    margin: 0;
-    padding: 0;
-    white-space: pre;
-    color: rgba(192, 202, 245, 0.32);
+  body.teach-mode #editor       { display: none; }
+  body.teach-mode #teach-panel  { display: flex; }
+
+  #teach-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+  }
+  #teach-title    { font-size: 13px; font-weight: 600; color: var(--fg); }
+  #teach-progress { color: var(--dim); font-size: 12px; }
+  #teach-exit {
+    margin-left: auto;
     background: transparent;
-    will-change: transform;
+    color: var(--dim);
+    border: 0;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 6px;
   }
-  body.teach-mode #teach-ghost { display: block; }
-  body.teach-mode .CodeMirror, body.teach-mode .CodeMirror-gutters {
-    background: transparent !important;
+  #teach-exit:hover { color: var(--fg); }
+
+  #teach-score {
+    flex: 1 1 50%;
+    margin: 0;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    overflow: auto;
+    white-space: pre;
+    color: #565f89;             /* pending lines, dim */
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
   }
-  body.teach-mode #editor::before {
-    content: attr(data-teach-banner);
-    position: absolute;
-    top: 0; left: 0; right: 0;
+  #teach-score .ln-num {
+    color: #3b4261;
+    display: inline-block;
+    width: 32px;
+    text-align: right;
+    margin-right: 10px;
+  }
+  #teach-score .done     { color: #c0caf5; }
+  #teach-score .done .ln-num { color: #9ece6a; }
+  #teach-score .current  {
     background: #2d3148;
     color: #c0caf5;
-    padding: 4px 10px;
-    font-size: 12px;
-    border-bottom: 1px solid var(--border);
-    z-index: 2;
-    pointer-events: none;
+    display: block;
   }
-  body.teach-mode #editor .CodeMirror { margin-top: 24px; }
-  body.teach-mode #teach-ghost     { top: 24px; }
+  #teach-score .current .ln-num { color: #ff9e64; }
+
+  #teach-current {
+    padding: 10px 14px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+  }
+  #teach-current .hdr {
+    color: var(--dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 4px 0 2px;
+  }
+  #teach-target, #teach-typed {
+    margin: 0;
+    padding: 4px 8px;
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre;
+    border-radius: 3px;
+    min-height: 1.5em;
+  }
+  #teach-target { color: #c0caf5; background: var(--bg); }
+  #teach-typed  { color: #565f89; background: var(--bg); }
+  #teach-typed  .right { color: #9ece6a; }
+  #teach-typed  .wrong { color: var(--error); background: rgba(247, 118, 142, 0.18); }
+  #teach-typed  .cursor {
+    border-left: 2px solid #c0caf5;
+    animation: blink 1s steps(2, start) infinite;
+  }
+  @keyframes blink { to { visibility: hidden; } }
+
+  /* Invisible -- only there to capture keystrokes. We render the
+     typed text ourselves in #teach-typed so we can color it. */
+  #teach-input {
+    position: absolute;
+    opacity: 0;
+    height: 0;
+    width: 0;
+    border: 0;
+    padding: 0;
+  }
   .CodeMirror {
     height: 100% !important;
     font-family: var(--mono);
@@ -339,8 +403,28 @@
 <main>
   <section>
     <div class="label">source</div>
-    <div id="editor" data-teach-banner="teach mode — retype the algorithm; Esc to exit">
-      <div id="teach-ghost"><pre id="teach-ghost-text"></pre></div>
+    <div id="editor"></div>
+
+    <!-- Teach panel takes over the editor slot when teach mode is
+         active. The layout is: a header with progress, a score
+         showing all lines with state (done / current / pending), a
+         single-line "target" display, a typed display with per-char
+         coloring, and an invisible input that captures keystrokes. -->
+    <div id="teach-panel">
+      <div id="teach-header">
+        <span id="teach-title"></span>
+        <span id="teach-progress"></span>
+        <button id="teach-exit" title="exit (Esc)">×</button>
+      </div>
+      <pre id="teach-score"></pre>
+      <div id="teach-current">
+        <div class="hdr">type this line:</div>
+        <pre id="teach-target"></pre>
+        <div class="hdr">your typing:</div>
+        <pre id="teach-typed">&nbsp;</pre>
+      </div>
+      <input id="teach-input" type="text" autocomplete="off"
+             spellcheck="false" autocapitalize="off" autocorrect="off">
     </div>
   </section>
   <section class="right">
@@ -1881,7 +1965,7 @@ function runConsoleCommand(argv) {
       writeConsole('not in teach mode', 'err');
       return;
     }
-    revealGhost();
+    exitTeachMode(true);
     return;
   }
 
@@ -1901,87 +1985,189 @@ function runConsoleCommand(argv) {
 // ghost into the editor as a normal reference so the user can verify
 // what they typed.
 // ---------------------------------------------------------------------
-const teachGhostBox  = document.getElementById('teach-ghost');
-const teachGhostText = document.getElementById('teach-ghost-text');
-let teachActive      = null;     // { cat, key, entry } when active
-let teachScrollUnsub = null;     // handle to detach the CM scroll listener
+// ---------------------------------------------------------------------
+// Teach mode: line-by-line typing practice.
+//
+// Pedagogy: piano practice. You drill one measure until it's mastered,
+// then the next measure. One full pass through a piece doesn't fire
+// any individual measure's pattern enough times for it to stick.
+// Translated to code: the user types one LINE at a time, sees per-
+// character right/wrong feedback, and advances on a clean Enter.
+//
+// State:
+//   teachActive    -- { cat, key, entry } when active
+//   teachLines     -- the algorithm split into lines
+//   teachLineIdx   -- index of the current line in teachLines
+//   teachTyped     -- raw text the user has typed for the current line
+// ---------------------------------------------------------------------
+const teachPanel     = document.getElementById('teach-panel');
+const teachTitle     = document.getElementById('teach-title');
+const teachProgress  = document.getElementById('teach-progress');
+const teachExitBtn   = document.getElementById('teach-exit');
+const teachScore     = document.getElementById('teach-score');
+const teachTarget    = document.getElementById('teach-target');
+const teachTyped     = document.getElementById('teach-typed');
+const teachInput     = document.getElementById('teach-input');
 
-// Align the ghost text with CM's actual rendered geometry. CM has its
-// own font defaults, line-height, gutter width (depends on the number
-// of digits in the line numbers), and content padding. Querying the
-// computed style at entry time keeps the ghost lined up regardless of
-// font fallbacks or future CM upgrades.
-function syncGhostGeometry() {
-  const cmEl      = document.querySelector('.CodeMirror');
-  const cmLines   = document.querySelector('.CodeMirror-lines');
-  const cmGutters = document.querySelector('.CodeMirror-gutters');
-  if (!cmEl || !cmLines) return;
+let teachActive  = null;
+let teachLines   = [];
+let teachLineIdx = 0;
 
-  const cs = getComputedStyle(cmEl);
-  teachGhostText.style.fontFamily = cs.fontFamily;
-  teachGhostText.style.fontSize   = cs.fontSize;
-  teachGhostText.style.lineHeight = cs.lineHeight;
+// True if the line is whitespace-only -- nothing to practice.
+function isBlankLine(s) { return s.replace(/[ \t]/g, '') === ''; }
 
-  const linesCs = getComputedStyle(cmLines);
-  const gutterW = cmGutters ? cmGutters.offsetWidth : 0;
-  // CM's .CodeMirror-lines has its own padding; the gutter is a
-  // separate absolutely-positioned element to its left.
-  teachGhostText.style.paddingLeft = (gutterW + parseFloat(linesCs.paddingLeft) || 0) + 'px';
-  teachGhostText.style.paddingTop  = linesCs.paddingTop;
+// Find the next non-blank line at or after idx.
+function nextRealLine(idx) {
+  while (idx < teachLines.length && isBlankLine(teachLines[idx])) idx++;
+  return idx;
 }
 
-// CM's scroll position is relative to the editor's viewport; the ghost
-// is anchored absolutely to the same viewport, so translating the
-// inner pre by (-scrollLeft, -scrollTop) keeps lines registered with
-// the corresponding line in the editor.
-function syncGhostScroll() {
-  const info = cm.getScrollInfo();
-  teachGhostText.style.transform =
-    `translate(${-info.left}px, ${-info.top}px)`;
+function renderTeachScore() {
+  // Render every line with its line number and a state class:
+  // done / current / pending. Pending uses the parent dim color
+  // so it doesn't need a class.
+  const out = [];
+  for (let i = 0; i < teachLines.length; i++) {
+    const num = String(i + 1).padStart(3, ' ');
+    let cls;
+    if (i < teachLineIdx)       cls = 'done';
+    else if (i === teachLineIdx) cls = 'current';
+    else                         cls = 'pending';
+    out.push(
+      `<span class="${cls}"><span class="ln-num">${num}</span>` +
+      escapeHTML(teachLines[i]) + '</span>'
+    );
+  }
+  teachScore.innerHTML = out.join('\n');
+  // Scroll the current line into view.
+  const currentEl = teachScore.querySelector('.current');
+  if (currentEl) currentEl.scrollIntoView({ block: 'center' });
+}
+
+// Standard HTML escape -- shared by score and typed-line rendering.
+function escapeHTML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Render the typed line, char-by-char, against the current target.
+// Each char gets `right` if it matches the corresponding target char,
+// `wrong` if it diverges. A blinking cursor span trails the last char.
+function renderTeachTyped() {
+  const target = teachLines[teachLineIdx] || '';
+  const typed  = teachInput.value;
+  const out = [];
+  for (let i = 0; i < typed.length; i++) {
+    const tc = typed[i];
+    const xc = target[i];
+    const cls = (tc === xc) ? 'right' : 'wrong';
+    // Render visible chars; for spaces, use the char directly so
+    // they consume their normal width in the pre.
+    out.push(`<span class="${cls}">${escapeHTML(tc)}</span>`);
+  }
+  out.push('<span class="cursor"></span>');
+  teachTyped.innerHTML = out.length === 1 ? '&nbsp;' : out.join('');
+  teachTarget.textContent = target.length === 0 ? ' ' : target;
+}
+
+function updateTeachProgress() {
+  // Count real (non-blank) lines and how many are completed.
+  let total = 0, done = 0;
+  for (let i = 0; i < teachLines.length; i++) {
+    if (isBlankLine(teachLines[i])) continue;
+    total++;
+    if (i < teachLineIdx) done++;
+  }
+  teachProgress.textContent = `line ${done + 1} / ${total}`;
 }
 
 function enterTeachMode(hit) {
-  teachActive = hit;
-  teachGhostText.textContent = hit.entry.source;
-  cm.setValue('');
+  teachActive  = hit;
+  teachLines   = hit.entry.source.replace(/\n$/, '').split('\n');
+  teachLineIdx = nextRealLine(0);
+  teachInput.value = '';
   document.body.classList.add('teach-mode');
-  document.getElementById('editor').setAttribute(
-    'data-teach-banner',
-    `teach: ${hit.cat}/${hit.key} -- retype the algorithm; Esc to exit`
-  );
-  cm.refresh();   // recompute CM geometry after the banner pushes us down
-  // Defer geometry/scroll sync one tick so CSS transitions and CM's
-  // own re-layout settle before we measure.
-  setTimeout(() => {
-    syncGhostGeometry();
-    syncGhostScroll();
-  }, 0);
-  cm.on('scroll', syncGhostScroll);
-  teachScrollUnsub = () => cm.off('scroll', syncGhostScroll);
-  cm.focus();
+  teachTitle.textContent = `teach: ${hit.cat}/${hit.key}`;
+  updateTeachProgress();
+  renderTeachScore();
+  renderTeachTyped();
+  // Defer focus so the panel's display:flex is applied first.
+  setTimeout(() => teachInput.focus(), 0);
   writeConsole(
-    `teach mode: ${hit.cat}/${hit.key}. The reference is dimmed behind ` +
-    `the editor. Retype the algorithm; Esc (or 'reveal') when done.`,
-    'ok');
+    `teach mode: ${hit.cat}/${hit.key}. Type each line and press Enter ` +
+    `to advance. Esc exits.`, 'ok');
 }
 
-function revealGhost() {
+function exitTeachMode(reveal) {
   if (!teachActive) return;
   document.body.classList.remove('teach-mode');
-  if (teachScrollUnsub) { teachScrollUnsub(); teachScrollUnsub = null; }
-  cm.setValue(teachActive.entry.source);
-  cm.refresh();
-  writeConsole(
-    `revealed ${teachActive.cat}/${teachActive.key} in the editor.`,
-    'ok');
-  teachActive = null;
+  if (reveal) {
+    cm.setValue(teachActive.entry.source);
+    cm.refresh();
+    cm.focus();
+    writeConsole(
+      `revealed ${teachActive.cat}/${teachActive.key} in the editor.`, 'ok');
+  }
+  teachActive  = null;
+  teachLines   = [];
+  teachLineIdx = 0;
 }
 
+function teachAdvance() {
+  // Try to advance: the typed line must match the target exactly.
+  const target = teachLines[teachLineIdx] || '';
+  const typed  = teachInput.value;
+  if (typed !== target) {
+    // Flash the typed pre to signal "not yet". Brief shake.
+    teachTyped.animate(
+      [{ transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' },
+       { transform: 'translateX(0)' }],
+      { duration: 180, iterations: 1 }
+    );
+    return;
+  }
+  // Move to next real line.
+  teachLineIdx = nextRealLine(teachLineIdx + 1);
+  teachInput.value = '';
+  updateTeachProgress();
+  renderTeachScore();
+  renderTeachTyped();
+  if (teachLineIdx >= teachLines.length) {
+    // Completed all lines: drop back to the editor with the full
+    // source pasted so the user can run it.
+    writeConsole(
+      `teach: completed ${teachActive.cat}/${teachActive.key}.`, 'ok');
+    exitTeachMode(true);
+  }
+}
+
+teachInput.addEventListener('input', renderTeachTyped);
+teachInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    teachAdvance();
+    return;
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    exitTeachMode(true);
+    return;
+  }
+});
+
+// Clicking anywhere in the teach panel re-focuses the hidden input so
+// the user can keep typing after switching windows.
+teachPanel.addEventListener('click', () => {
+  if (teachActive) teachInput.focus();
+});
+
+teachExitBtn.addEventListener('click', () => exitTeachMode(true));
+
 document.addEventListener('keydown', (e) => {
-  // Esc exits teach mode -- but only if we're in it.
+  // Document-level Esc as a safety net (the teach-input has its own
+  // Esc handler but won't fire if focus has wandered elsewhere).
   if (e.key === 'Escape' && document.body.classList.contains('teach-mode')) {
     e.preventDefault();
-    revealGhost();
+    exitTeachMode(true);
   }
 });
 
