@@ -249,6 +249,76 @@
   }
   #teach-target { color: #c0caf5; background: var(--bg); }
   #teach-typed  { color: #565f89; background: var(--bg); }
+
+  /* Walk mode: the target line is hidden until the user pays a
+     "walk to notes" cost. The walk-overlay occupies the target's
+     slot during the walking phases (filling/draining bar). During
+     the looking phase, the target reappears with a countdown. */
+  #teach-walk-overlay {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px;
+    min-height: 1.5em;
+  }
+  #teach-walk-overlay .bar {
+    flex: 1;
+    height: 6px;
+    background: #1a1b26;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  #teach-walk-overlay .bar .fill {
+    width: 0%;
+    height: 100%;
+    background: #7aa2f7;
+    transition: width 1500ms linear;
+  }
+  #teach-walk-overlay .label {
+    color: var(--dim);
+    font-size: 12px;
+    font-family: var(--mono);
+    min-width: 14em;
+  }
+  #teach-countdown {
+    display: none;
+    margin-left: 10px;
+    color: #ff9e64;
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+
+  /* Walk mode active: hide the target by default. */
+  body.walk-mode #teach-target { display: none; }
+  /* While walking (there or back): show the overlay, hide target. */
+  body.walk-mode.walk-walking #teach-walk-overlay { display: flex; }
+  /* While looking: show the target again and the countdown. */
+  body.walk-mode.walk-looking #teach-target { display: block; }
+  body.walk-mode.walk-looking #teach-countdown { display: inline; }
+  /* Disabled input during a walk -- visually dim. */
+  #teach-input:disabled { opacity: 0.5; }
+
+  /* "Walk to notes" button in the teach header. */
+  #teach-walk-btn {
+    background: #2a3050;
+    color: #c0caf5;
+    border: 1px solid #3b4261;
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  #teach-walk-btn:hover     { background: #3b4261; }
+  #teach-walk-btn:disabled  { opacity: 0.4; cursor: not-allowed; }
+  #teach-walk-btn { display: none; }
+  body.walk-mode #teach-walk-btn { display: inline-block; }
+  #teach-peeks {
+    display: none;
+    color: var(--dim);
+    font-size: 12px;
+  }
+  body.walk-mode #teach-peeks { display: inline; }
   /* Namespaced class names. Earlier versions used .right / .wrong /
      .cursor and collided with the right-pane's .right { display:
      flex; flex-direction: column } -- every matched character
@@ -422,12 +492,18 @@
       <div id="teach-header">
         <span id="teach-title"></span>
         <span id="teach-progress"></span>
+        <span id="teach-peeks"></span>
+        <button id="teach-walk-btn" title="walk to notes (Ctrl+\)">walk to notes</button>
         <button id="teach-exit" title="exit (Esc)">×</button>
       </div>
       <pre id="teach-score"></pre>
       <div id="teach-current">
-        <div class="hdr">type this line:</div>
+        <div class="hdr">type this line:<span id="teach-countdown"></span></div>
         <pre id="teach-target"></pre>
+        <div id="teach-walk-overlay">
+          <div class="bar"><div class="fill"></div></div>
+          <div class="label"></div>
+        </div>
         <div class="hdr">your typing:</div>
         <pre id="teach-typed">&nbsp;</pre>
       </div>
@@ -2005,6 +2081,7 @@ function runConsoleCommand(argv) {
       '       -s                   staircase: type lines 1, 1-2, 1-2-3, ...',
       '       --reverse            with -s: grow from the LAST line backward',
       '       -b N                 bracket: sliding N-line window (1..N, 2..N+1, ...)',
+      '       -w                   walk mode: target hidden; "walk to notes" to peek',
       '       (-r combines with -s and -b: each STEP repeats N times)',
       '  wb METHOD [opts]      -- alias for teach (whiteboard)',
       '  reveal                -- exit teach mode, paste source',
@@ -2075,12 +2152,13 @@ function runConsoleCommand(argv) {
   }
 
   if (cmd === 'teach' || cmd === 'wb') {
-    // Parse: teach METHOD [-r N] [-s | --reverse | -b N]
+    // Parse: teach METHOD [-r N] [-s | --reverse | -b N] [-w]
     let method    = null;
     let repeat    = 1;
     let staircase = false;
     let reverse   = false;
     let bracket   = 0;
+    let walk      = false;
     const intArgRange = (val, name) => {
       const n = parseInt(val, 10);
       if (!Number.isInteger(n) || n < 1 || n > 50) {
@@ -2107,6 +2185,8 @@ function runConsoleCommand(argv) {
       } else if (a.startsWith('-b') && a !== '-b' && !a.startsWith('--')) {
         const n = intArgRange(a.slice(2), '-b'); if (n == null) return;
         bracket = n;
+      } else if (a === '-w' || a === '--walk') {
+        walk = true;
       } else if (!method) {
         method = a;
       } else {
@@ -2115,7 +2195,7 @@ function runConsoleCommand(argv) {
       }
     }
     if (!method) {
-      writeConsole('usage: teach METHOD [-r N] [-s | --reverse | -b N]', 'err');
+      writeConsole('usage: teach METHOD [-r N] [-s | --reverse | -b N] [-w]', 'err');
       return;
     }
     if (bracket > 0 && (staircase || reverse)) {
@@ -2128,7 +2208,7 @@ function runConsoleCommand(argv) {
     }
     const hit = findMethod(method);
     if (!hit) { writeConsole(`unknown method '${method}'`, 'err'); return; }
-    enterTeachMode(hit, { repeat, staircase, reverse, bracket });
+    enterTeachMode(hit, { repeat, staircase, reverse, bracket, walk });
     return;
   }
 
@@ -2180,12 +2260,29 @@ const teachScore     = document.getElementById('teach-score');
 const teachTarget    = document.getElementById('teach-target');
 const teachTyped     = document.getElementById('teach-typed');
 const teachInput     = document.getElementById('teach-input');
+const teachPeeks     = document.getElementById('teach-peeks');
+const teachWalkBtn   = document.getElementById('teach-walk-btn');
+const teachWalkOv    = document.getElementById('teach-walk-overlay');
+const teachWalkBar   = teachWalkOv.querySelector('.fill');
+const teachWalkLbl   = teachWalkOv.querySelector('.label');
+const teachCountdown = document.getElementById('teach-countdown');
 
 let teachActive  = null;
 let teachLines   = [];
 let teachLineIdx = 0;
 let teachPass    = 1;          // current pass on the current line (1-indexed)
 let teachRepeat  = 1;          // passes per line, set from -r on the teach command
+// Walk mode: the target line is hidden by default; the user types
+// from memory. To see the target they "walk to the notes" -- 1.5s
+// of forced delay each way, with the target visible for ~5s in
+// between. Per-char coloring is suppressed (it would leak the answer
+// keystroke by keystroke); feedback is line-level only.
+let teachWalk    = false;
+let walkState    = 'typing';   // 'typing' | 'walking_there' | 'looking' | 'walking_back'
+let walkPeeks    = 0;
+let walkTimers   = [];         // running setTimeout handles (for cleanup on exit)
+const WALK_MS    = 1500;
+const LOOK_S     = 5;          // seconds the target is visible mid-walk
 // Stepped modes -- staircase, reverse staircase, sliding bracket --
 // share a "current step's line set" abstraction. Each step has a
 // span of typeable-line indices [stepLo, stepHi]. The user types
@@ -2304,24 +2401,97 @@ function escapeHTML(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Render the typed line, char-by-char, against the current target.
-// Each char gets `right` if it matches the corresponding target char,
-// `wrong` if it diverges. A blinking cursor span trails the last char.
+// Render the typed line. In standard mode each char gets right /
+// wrong coloring vs the target. In walk mode (and outside the
+// looking phase), per-char coloring is suppressed -- otherwise the
+// user could trial-and-error their way to the target one keystroke
+// at a time, defeating the recall exercise. They get line-level
+// feedback only, on Enter.
 function renderTeachTyped() {
   const target = teachLines[teachLineIdx] || '';
   const typed  = teachInput.value;
+  const colorize = !teachWalk || walkState === 'looking';
   const out = [];
   for (let i = 0; i < typed.length; i++) {
     const tc = typed[i];
-    const xc = target[i];
-    const cls = (tc === xc) ? 'tt-ok' : 'tt-err';
-    // Render visible chars; for spaces, use the char directly so
-    // they consume their normal width in the pre.
-    out.push(`<span class="${cls}">${escapeHTML(tc)}</span>`);
+    if (colorize) {
+      const xc = target[i];
+      const cls = (tc === xc) ? 'tt-ok' : 'tt-err';
+      out.push(`<span class="${cls}">${escapeHTML(tc)}</span>`);
+    } else {
+      out.push(escapeHTML(tc));
+    }
   }
   out.push('<span class="tt-cur"></span>');
   teachTyped.innerHTML = out.length === 1 ? '&nbsp;' : out.join('');
   teachTarget.textContent = target.length === 0 ? ' ' : target;
+}
+
+// ---- Walk mechanic --------------------------------------------------
+// startWalk() drives the state machine:
+//   typing -> walking_there (1.5s, bar fills, input disabled)
+//          -> looking (5s, target visible with countdown)
+//          -> walking_back (1.5s, bar drains)
+//          -> typing
+// The user-side cost is ~8 seconds of wall time per peek, which is
+// what makes the active-recall difficulty matter.
+function setWalkLabel(text) { teachWalkLbl.textContent = text; }
+
+function startWalk() {
+  if (!teachWalk || walkState !== 'typing') return;
+  walkPeeks++;
+  teachPeeks.textContent = `peeks: ${walkPeeks}`;
+  walkState = 'walking_there';
+  document.body.classList.add('walk-walking');
+  teachInput.disabled = true;
+  teachWalkBtn.disabled = true;
+  // Reset bar then animate to 100%.
+  teachWalkBar.style.transition = 'none';
+  teachWalkBar.style.width = '0%';
+  setWalkLabel('→ walking to notes...');
+  // Force a reflow so the next transition takes effect.
+  void teachWalkBar.offsetWidth;
+  teachWalkBar.style.transition = `width ${WALK_MS}ms linear`;
+  teachWalkBar.style.width = '100%';
+  walkTimers.push(setTimeout(beginLooking, WALK_MS));
+}
+
+function beginLooking() {
+  walkState = 'looking';
+  document.body.classList.remove('walk-walking');
+  document.body.classList.add('walk-looking');
+  let s = LOOK_S;
+  teachCountdown.textContent = `(${s})`;
+  // Re-render typed pre so the user can see the per-char highlights
+  // (active during looking).
+  renderTeachTyped();
+  const tick = () => {
+    s--;
+    if (s <= 0) { endLooking(); return; }
+    teachCountdown.textContent = `(${s})`;
+    walkTimers.push(setTimeout(tick, 1000));
+  };
+  walkTimers.push(setTimeout(tick, 1000));
+}
+
+function endLooking() {
+  walkState = 'walking_back';
+  document.body.classList.remove('walk-looking');
+  document.body.classList.add('walk-walking');
+  teachCountdown.textContent = '';
+  setWalkLabel('← walking back...');
+  teachWalkBar.style.transition = `width ${WALK_MS}ms linear`;
+  teachWalkBar.style.width = '0%';
+  walkTimers.push(setTimeout(finishWalk, WALK_MS));
+  renderTeachTyped();
+}
+
+function finishWalk() {
+  walkState = 'typing';
+  document.body.classList.remove('walk-walking');
+  teachInput.disabled = false;
+  teachWalkBtn.disabled = false;
+  teachInput.focus();
 }
 
 function updateTeachProgress() {
@@ -2361,8 +2531,18 @@ function enterTeachMode(hit, opts) {
                      ? opts.bracket : 0;
   teachRepeat    = (Number.isInteger(opts.repeat) && opts.repeat >= 1)
                      ? opts.repeat : 1;
+  teachWalk     = !!opts.walk;
   teachPass     = 1;
   stairStepPass = 1;
+  walkState     = 'typing';
+  walkPeeks     = 0;
+  walkTimers.forEach(clearTimeout);
+  walkTimers = [];
+  document.body.classList.toggle('walk-mode', teachWalk);
+  document.body.classList.remove('walk-walking', 'walk-looking');
+  if (teachWalk) {
+    teachPeeks.textContent = 'peeks: 0';
+  }
 
   typeableIdxs = [];
   for (let i = 0; i < teachLines.length; i++) {
@@ -2401,18 +2581,28 @@ function enterTeachMode(hit, opts) {
   } else if (teachRepeat > 1) {
     mode = `Each line needs ${teachRepeat} clean passes.`;
   } else {
-    mode = '(-r N repeats each line, -s staircase, -b N window, --reverse for inverted staircase.)';
+    mode = '(-r N repeats each line, -s staircase, -b N window, --reverse, -w walk mode.)';
   }
   const repNote = (teachRepeat > 1 && stepped)
     ? ` Each step repeats ${teachRepeat} times.` : '';
+  const walkNote = teachWalk
+    ? ' Walk mode: target hidden. Click "walk to notes" (Ctrl+\\) to peek;'
+    + ' costs ~8s wall time per peek. Per-char coloring is suppressed --'
+    + ' feedback is line-level only on Enter.'
+    : '';
   writeConsole(
-    `teach mode: ${hit.cat}/${hit.key}. ${mode}${repNote}` +
+    `teach mode: ${hit.cat}/${hit.key}. ${mode}${repNote}${walkNote}` +
     ' Enter to advance, Tab for 4 spaces, Esc exits.', 'ok');
 }
 
 function exitTeachMode(reveal) {
   if (!teachActive) return;
-  document.body.classList.remove('teach-mode');
+  document.body.classList.remove('teach-mode', 'walk-mode', 'walk-walking', 'walk-looking');
+  walkTimers.forEach(clearTimeout);
+  walkTimers = [];
+  walkState  = 'typing';
+  teachInput.disabled = false;
+  teachWalkBtn.disabled = false;
   if (reveal) {
     cm.setValue(teachActive.entry.source);
     cm.refresh();
@@ -2426,6 +2616,9 @@ function exitTeachMode(reveal) {
 }
 
 function teachAdvance() {
+  // Don't let Enter advance during the walking/looking phases.
+  if (teachWalk && walkState !== 'typing') return;
+
   // The typed line must match the target exactly (whitespace and all).
   const target = teachLines[teachLineIdx] || '';
   const typed  = teachInput.value;
@@ -2435,6 +2628,11 @@ function teachAdvance() {
        { transform: 'translateX(0)' }],
       { duration: 180, iterations: 1 }
     );
+    // In walk mode the user can't tell from per-char highlights
+    // where they went wrong (no leak), so leaving the wrong attempt
+    // in the input is just clutter. Reset to the line's leading
+    // whitespace and let them try again from memory.
+    if (teachWalk) startCurrentLine();
     return;
   }
 
@@ -2538,6 +2736,16 @@ teachPanel.addEventListener('click', () => {
 });
 
 teachExitBtn.addEventListener('click', () => exitTeachMode(true));
+teachWalkBtn.addEventListener('click', startWalk);
+
+document.addEventListener('keydown', (e) => {
+  // Ctrl/Cmd-\\ triggers a walk to notes while teach is active.
+  // (Backslash is unbound in default browser shortcuts.)
+  if ((e.metaKey || e.ctrlKey) && e.key === '\\' && teachActive && teachWalk) {
+    e.preventDefault();
+    startWalk();
+  }
+});
 
 document.addEventListener('keydown', (e) => {
   // Document-level Esc as a safety net (the teach-input has its own
