@@ -327,6 +327,27 @@ GOT=$(./knot /tmp/_append_test.knot 2>&1)
 check "append (interp)" "3 1 two [10, 20]" "$GOT"
 rm -f /tmp/_append_test.knot
 
+echo "== fuzz (methodological) =="
+
+# Methodological fuzzer: run the same program under multiple
+# implementations of one named slot and verify agreement.
+cat > /tmp/_fuzz_a.knot <<'EOF'
+def m_a() { return 7 }
+def m_b() { return 7 }
+print(slot())
+EOF
+GOT=$(./knot --fuzz slot=m_a,m_b /tmp/_fuzz_a.knot 2>&1 | tail -1)
+check "fuzz: two agreeing methods" "  AGREE: all 2 methods produced identical output." "$GOT"
+
+cat > /tmp/_fuzz_b.knot <<'EOF'
+def m_a() { return 7 }
+def m_b() { return 8 }
+print(slot())
+EOF
+GOT=$(./knot --fuzz slot=m_a,m_b /tmp/_fuzz_b.knot 2>&1 | tail -1)
+check "fuzz: two disagreeing methods" "  DISAGREEMENT: outputs differ across methods." "$GOT"
+rm -f /tmp/_fuzz_a.knot /tmp/_fuzz_b.knot
+
 echo "== pathology library =="
 
 # Pathologies 01-04 must produce identical output under --interp

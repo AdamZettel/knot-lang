@@ -675,10 +675,12 @@ int main(int argc, char** argv) {
     //   knot --show FILE         -> print source with annotations inlined
     //   knot --cc FILE           -> transpile to C; print to stdout
     //   knot --exec FILE         -> transpile, compile with cc, run binary
-    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay, Test } mode = Mode::Run;
+    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay, Test, Fuzz } mode = Mode::Run;
     const char* filename = nullptr;
     bool trap_nan = false;
     std::string trace_path;
+    std::string fuzz_slot;                  // --fuzz NAME=ALT1,ALT2,... (the NAME)
+    std::vector<std::string> fuzz_alts;     // (the ALTs)
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if      (arg == "--step")     mode = Mode::Step;
@@ -694,6 +696,29 @@ int main(int argc, char** argv) {
         else if (arg == "--no-hints")  phrase_hints_enabled() = false;
         else if (arg == "--no-narrate") narration_enabled() = false;
         else if (arg == "--narrate-step") narration_step_enabled() = true;
+        else if (arg.rfind("--fuzz=", 0) == 0
+             || (arg == "--fuzz" && i + 1 < argc)) {
+            // Both `--fuzz NAME=ALT,...` and `--fuzz=NAME=ALT,...`.
+            std::string spec = (arg.rfind("--fuzz=", 0) == 0)
+                ? arg.substr(7)
+                : argv[++i];
+            size_t eq = spec.find('=');
+            if (eq == std::string::npos) {
+                std::cerr << "--fuzz expects NAME=ALT1[,ALT2,...]\n";
+                return 2;
+            }
+            fuzz_slot = spec.substr(0, eq);
+            std::string rest = spec.substr(eq + 1);
+            // Split on commas.
+            size_t s = 0;
+            while (s < rest.size()) {
+                size_t c = rest.find(',', s);
+                if (c == std::string::npos) c = rest.size();
+                fuzz_alts.push_back(rest.substr(s, c - s));
+                s = c + 1;
+            }
+            mode = Mode::Fuzz;
+        }
         else if (arg == "--record") {
             // Trace path is filled in below once we know the input filename.
             trace_path = "__placeholder__";
@@ -803,6 +828,75 @@ int main(int argc, char** argv) {
             } catch (const std::exception& e) {
                 std::cerr << "internal error: " << e.what() << "\n";
                 return 2;
+            }
+        }
+        case Mode::Fuzz: {
+            // Run the file once per alternative. After each run capture
+            // the program's stdout, then print all outputs and report
+            // whether they agree. Disagreement is the diagnostic signal
+            // that one of the methods is wrong (or has different
+            // numerical character than the others).
+            //
+            // Each run is independent: fresh Interpreter, fresh stdlib
+            // load, fresh parse of the same source. The parse is
+            // re-done because Function values carry raw pointers to
+            // the AST and the prior run's program owns its own copy.
+            std::vector<std::string> outputs;
+            for (const std::string& alt : fuzz_alts) {
+                std::ostringstream captured;
+                std::streambuf* old_cout = std::cout.rdbuf(captured.rdbuf());
+                try {
+                    Interpreter interp;
+                    if (!load_stdlib(interp)) {
+                        std::cout.rdbuf(old_cout);
+                        return 1;
+                    }
+                    Lexer lex(src);
+                    auto toks = lex.tokenize();
+                    Parser p(toks, src);
+                    auto program = p.parse_program();
+                    interp.run_with_fuzz(program, fuzz_slot, alt);
+                    g_retained.push_back(std::move(program));
+                } catch (const Diag& d) {
+                    std::cout.rdbuf(old_cout);
+                    std::cerr << "fuzz run [" << alt << "] failed:\n";
+                    render_diag(filename, src, d);
+                    return 1;
+                } catch (const std::exception& e) {
+                    std::cout.rdbuf(old_cout);
+                    std::cerr << "fuzz run [" << alt << "] internal error: "
+                              << e.what() << "\n";
+                    return 2;
+                }
+                std::cout.rdbuf(old_cout);
+                outputs.push_back(captured.str());
+            }
+
+            // Print each run's output.
+            std::cout << "== fuzz: " << fuzz_alts.size()
+                      << " methods over `" << fuzz_slot << "` ==\n";
+            for (size_t i = 0; i < fuzz_alts.size(); ++i) {
+                std::cout << "\n  [" << fuzz_alts[i] << "]\n";
+                std::istringstream lines(outputs[i]);
+                std::string line;
+                while (std::getline(lines, line)) {
+                    std::cout << "    " << line << "\n";
+                }
+            }
+
+            // Agreement check: all outputs identical?
+            std::cout << "\n";
+            bool agree = true;
+            for (size_t i = 1; i < outputs.size(); ++i) {
+                if (outputs[i] != outputs[0]) { agree = false; break; }
+            }
+            if (agree) {
+                std::cout << "  AGREE: all " << fuzz_alts.size()
+                          << " methods produced identical output.\n";
+                return 0;
+            } else {
+                std::cout << "  DISAGREEMENT: outputs differ across methods.\n";
+                return 1;
             }
         }
         case Mode::Callgraph: return 0; // handled above; unreachable

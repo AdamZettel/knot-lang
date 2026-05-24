@@ -83,6 +83,47 @@ public:
         }
     }
 
+    // --fuzz entry point. Two-pass execution:
+    //   1. Run every top-level FnDecl statement. This makes the
+    //      user's alternative implementations visible in globals.
+    //   2. Look up `alt_name` (e.g. "qr_solve") in globals, prebind
+    //      `slot_name` (e.g. "linsolve") to that value, and add
+    //      slot_name to cli_prebinds_ so any later top-level
+    //      assignment to it in the source is silently skipped.
+    //   3. Run the remaining (non-FnDecl) top-level statements.
+    //
+    // Throws Diag if `alt_name` isn't defined in globals after
+    // pass 1. Other Diag's from the program execution propagate.
+    void run_with_fuzz(const std::vector<StmtPtr>& program,
+                       const std::string& slot_name,
+                       const std::string& alt_name) {
+        // Pass 1: top-level FnDecls.
+        for (const auto& s : program) {
+            if (s->kind == StmtKind::FnDecl) exec(*s, globals);
+        }
+        // Look up the alternative.
+        Value* alt = globals->find(alt_name);
+        if (!alt) {
+            throw Diag(program.empty() ? Span{} : program.front()->span,
+                "fuzz: alternative `" + alt_name
+                + "` was not defined in the program");
+        }
+        // Prebind. Any subsequent top-level `slot_name = ...` is
+        // skipped (see the Assign case in exec()).
+        globals->define(slot_name, *alt);
+        cli_prebinds_.insert(slot_name);
+        // Pass 2: everything else.
+        try {
+            for (const auto& s : program) {
+                if (s->kind != StmtKind::FnDecl) exec(*s, globals);
+            }
+        } catch (const BreakSignal& b) {
+            throw Diag(b.span, "'break' is not inside a loop");
+        } catch (const ContinueSignal& c) {
+            throw Diag(c.span, "'continue' is not inside a loop");
+        }
+    }
+
     // --test mode entry point. Two-pass:
     //   1. Execute non-test top-level statements once. This sets up def's,
     //      stdlib-derived globals, etc. TestDecl statements are no-ops here.
@@ -167,6 +208,11 @@ private:
     // Keys that have already been shown this run. Used to suppress duplicate
     // annotation printing in tight loops.
     std::unordered_set<std::string> seen_annotations;
+    // Names that the CLI has prebound (currently only by --fuzz). Top-level
+    // `name = expr` assigns to these are silently skipped so the script's
+    // own default value doesn't clobber the CLI's choice. Cleared on
+    // each new Interpreter instance.
+    std::unordered_set<std::string> cli_prebinds_;
 
     // Print one annotation line to stderr, unless we've already shown this
     // exact one earlier in the run. The * prefix opts out of suppression
@@ -317,6 +363,14 @@ private:
                 if (s.target) {
                     assign_index(*s.target, std::move(v), env);
                 } else {
+                    // Top-level assignment to a CLI-prebound name is
+                    // silently skipped -- the CLI's choice wins. This
+                    // is what makes `--fuzz NAME=...` work when the
+                    // script also defines its own default for NAME.
+                    if (env.get() == globals.get()
+                     && cli_prebinds_.count(s.name)) {
+                        return;
+                    }
                     // Auto-create-or-reassign. If the name exists anywhere
                     // in the scope chain, update in place; otherwise create
                     // in the current scope. This is Python-like.
