@@ -1,0 +1,61 @@
+# Stress test 04: linear regression via the closed-form normal
+# equations for a one-variable fit y = a x + b.
+#
+# Given (x_i, y_i) for i = 1..n, the least-squares slope and
+# intercept that minimize sum_i (y_i - a x_i - b)^2 are
+#
+#   a = (n * sum(x*y) - sum(x) * sum(y)) / (n * sum(x*x) - sum(x)^2)
+#   b = (sum(y) - a * sum(x)) / n
+#
+# The test data below is exactly on the line y = 2x + 1 with no
+# noise, so the recovered slope/intercept must be (2.0, 1.0) to
+# machine precision (this is a degenerate, well-conditioned case --
+# pathology #5 in examples/pathologies/ shows the opposite).
+
+x = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+y = [3.0, 5.0, 7.0, 9.0, 11.0, 13.0]   # = 2x + 1
+
+n   = take the size of x
+sx  = take the sum of x
+sy  = take the sum of y
+
+# sum(x*x), sum(x*y) -- explicit loops because Hadamard vec*vec
+# isn't lowered in --exec yet (see CODEGEN_GAPS.md).
+sxx = 0.0
+sxy = 0.0
+for i to n {
+    xi = at(x, i)
+    yi = at(y, i)
+    sxx += xi * xi
+    sxy += xi * yi
+}
+
+a = (n * sxy - sx * sy) / (n * sxx - sx * sx)
+b = (sy - a * sx) / n
+
+narrate "Slope and intercept:"
+show a
+show b
+
+# Residual sum of squares (should be ~0 on noiseless data).
+rss = 0.0
+for i to n {
+    yi = at(y, i)
+    yhat = a * at(x, i) + b
+    e = yi - yhat
+    rss += e * e
+}
+narrate "Residual sum of squares (should be ~0):"
+show rss
+
+test "slope of noiseless y = 2x + 1 recovers as 2.0" {
+    assert_near(a, 2.0, 1e-12)
+}
+
+test "intercept of noiseless y = 2x + 1 recovers as 1.0" {
+    assert_near(b, 1.0, 1e-12)
+}
+
+test "residual sum of squares is zero on noiseless data" {
+    assert_near(rss, 0.0, 1e-20)
+}

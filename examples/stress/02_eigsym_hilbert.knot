@@ -1,0 +1,52 @@
+# Stress test 02: largest eigenvalue of a 5x5 Hilbert matrix via
+# power iteration.
+#
+# Hilbert matrix H_{ij} = 1 / (i + j + 1) (0-indexed) is symmetric
+# and notoriously ill-conditioned (cond(H_5) ~ 5e5), so the smaller
+# eigenvalues are very near zero. The largest, however, is well
+# separated and well known.
+#
+# Published value of the largest eigenvalue of H_5 (Wilkinson and
+# others): ~ 1.5670506910982142.
+
+def build_hilbert(n) {
+    "Build the n x n Hilbert matrix."
+    H = zeros(n, n)
+    for i to n {
+        for j to n {
+            set(H, i, j, 1.0 / (i + j + 1))
+        }
+    }
+    return H
+}
+
+n = 5
+H = build_hilbert(n)
+
+narrate "5x5 Hilbert matrix:"
+show H
+
+# Power iteration converges to the dominant eigenvector; the
+# eigenvalue is the Rayleigh quotient of H against the converged
+# vector (or equivalently the norm of H @ v / norm(v) at convergence).
+
+v = zeros(n)
+lam = power_iter(H, v, 500, 1e-13)
+
+narrate "Largest eigenvalue (via power iteration):"
+show lam
+narrate "Corresponding eigenvector (normalized):"
+show v
+
+# Sanity: residual should be small.
+Hv = H @ v
+resid = Hv - lam * v
+narrate "Residual norm (should be ~0):"
+show norm(resid)
+
+# Known largest eigenvalue of H_5 (Wilkinson reference).
+lam_true = 1.5670506910982142
+
+test "largest eigenvalue of H_5 matches the published value" {
+    assert_near(lam, lam_true, 1e-7)
+}

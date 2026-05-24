@@ -1,0 +1,53 @@
+# Stress test 03: 1s Slater orbital normalization via 1-D Simpson.
+#
+# The unnormalized 1s Slater-type orbital with exponent zeta is
+#   chi(r) = exp(-zeta r)
+# In three dimensions the squared-norm integral over R^3 reduces by
+# spherical symmetry to
+#   N^2 = int_0^infty |chi(r)|^2 * 4 pi r^2 dr
+#       = 4 pi * int_0^infty r^2 exp(-2 zeta r) dr
+# The integrand has a known closed form
+#   int_0^infty r^2 exp(-2 zeta r) dr = 2 / (2 zeta)^3 = 1 / (4 zeta^3)
+# so
+#   N^2 = pi / zeta^3
+#
+# This test verifies that a Simpson integration of the radial
+# integrand on [0, R] for R >> 1/zeta matches the closed form.
+#
+# Uses `fn(r) -> EXPR` to pass the integrand into simpson. The
+# transpiler doesn't lower FnExpr yet, so this is --interp only.
+# (See CODEGEN_GAPS.md for the fix sketch.)
+
+zeta = 1.0
+pi   = 3.14159265358979
+
+# Integrate r^2 exp(-2 zeta r) from 0 to R via the stdlib's simpson.
+# fn(r) -> EXPR captures zeta from the surrounding scope.
+R = 30.0   # well past the exponential's decay length 1/(2 zeta) = 0.5
+n_intervals = 2000
+
+# Need a smooth integrand; closure over zeta works in interp.
+integrand = fn(r) -> r * r * exp(-2.0 * zeta * r)
+
+integral = simpson(integrand, 0.0, R, n_intervals)
+n_sq = 4.0 * pi * integral
+n_sq_true = pi / (zeta * zeta * zeta)
+
+narrate "Simpson integral of r^2 exp(-2 zeta r) on [0, R]:"
+show integral
+narrate "Squared norm N^2 (numeric):"
+show n_sq
+narrate "Squared norm N^2 (closed form pi / zeta^3):"
+show n_sq_true
+
+test "Slater 1s norm^2 matches the closed form" {
+    assert_near(n_sq, n_sq_true, 1e-6)
+}
+
+test "Doubling zeta scales norm^2 by 1/8 (cube of 2)" {
+    zeta2 = 2.0 * zeta
+    integrand2 = fn(r) -> r * r * exp(-2.0 * zeta2 * r)
+    integral2 = simpson(integrand2, 0.0, R, n_intervals)
+    n_sq_2 = 4.0 * pi * integral2
+    assert_near(n_sq_2, n_sq / 8.0, 1e-6)
+}

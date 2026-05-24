@@ -371,6 +371,47 @@ GOT=$(./knot --fuzz slot=m_a,m_b /tmp/_fuzz_b.knot 2>&1 | tail -1)
 check "fuzz: two disagreeing methods" "  DISAGREEMENT: outputs differ across methods." "$GOT"
 rm -f /tmp/_fuzz_a.knot /tmp/_fuzz_b.knot
 
+echo "== stress tests =="
+
+# Each stress test asserts its own correctness via `test "..."`
+# blocks. We run them with --test and check the summary line.
+# Parity check on the interp/exec output where the program doesn't
+# use features the codegen path doesn't lower yet.
+for f in examples/stress/01_*.knot examples/stress/02_*.knot \
+         examples/stress/04_*.knot examples/stress/05_*.knot; do
+    name=$(basename "$f" .knot)
+    OUT=$(./knot --test --no-hints "$f" 2>&1)
+    LAST=$(echo "$OUT" | tail -1)
+    if echo "$LAST" | grep -q "0 failed"; then
+        echo "  PASS  $name (--test)"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  $name (--test)"
+        echo "$OUT" | tail -5 | sed 's/^/        /'
+        FAIL=$((FAIL + 1))
+    fi
+    I=$(./knot --no-hints "$f" 2>&1 | grep -v "^# ")
+    E=$(./knot --exec --no-hints "$f" 2>/dev/null | grep -v "^# ")
+    if [ "$I" = "$E" ]; then
+        echo "  PASS  $name interp/exec parity"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  $name interp/exec parity"
+        FAIL=$((FAIL + 1))
+    fi
+done
+# 03_slater_norm uses fn(r) -> EXPR closures; FnExpr isn't lowered
+# in --exec yet. Verify --test passes under --interp only.
+OUT=$(./knot --test --no-hints examples/stress/03_slater_norm.knot 2>&1)
+LAST=$(echo "$OUT" | tail -1)
+if echo "$LAST" | grep -q "0 failed"; then
+    echo "  PASS  03_slater_norm (--test, interp only)"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL  03_slater_norm (--test, interp only)"
+    FAIL=$((FAIL + 1))
+fi
+
 echo "== pathology library =="
 
 # Pathologies 01-04 must produce identical output under --interp

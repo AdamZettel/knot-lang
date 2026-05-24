@@ -1,0 +1,91 @@
+# Stress test 01: Gauss-Legendre quadrature, nodes from scratch.
+#
+# Build the n-point Gauss-Legendre rule by:
+#   1. Evaluating Legendre P_n and its derivative via Bonnet's
+#      recurrence:
+#         P_0(x) = 1,  P_1(x) = x
+#         (k+1) P_{k+1}(x) = (2k+1) x P_k(x) - k P_{k-1}(x)
+#      Derivative comes from
+#         (1 - x^2) P_n'(x) = n (P_{n-1}(x) - x P_n(x))
+#   2. Finding the n roots of P_n by Newton iteration, started
+#      from the asymptotic guess cos((4i - 1) pi / (4n + 2)).
+#   3. Computing weights via
+#         w_i = 2 / ((1 - x_i^2) P_n'(x_i)^2).
+#
+# Verifies the rule by integrating f(x) = x^4 from -1 to 1
+# (analytic value 2/5). A 4-point rule integrates polynomials up
+# to degree 7 exactly, so the error here should be at machine
+# precision.
+
+def legendre_p_and_dp(n, x) {
+    "Evaluate Legendre polynomial P_n and its derivative at x.
+     Returns the pair [P_n(x), P_n'(x)] as a list."
+    p_prev = 1.0
+    p_curr = x
+    if n == 0 { return [1.0, 0.0] }
+    if n == 1 { return [x, 1.0] }
+    k = 1
+    while k < n {
+        p_next = ((2.0 * k + 1.0) * x * p_curr - k * p_prev) / (k + 1.0)
+        p_prev = p_curr
+        p_curr = p_next
+        k += 1
+    }
+    # Derivative: (1 - x^2) P_n'(x) = n (P_{n-1} - x P_n)
+    dp = n * (p_prev - x * p_curr) / (1.0 - x * x)
+    return [p_curr, dp]
+}
+
+def gauss_legendre(n, nodes_out, weights_out) {
+    "Fill nodes_out and weights_out (both vecs of length n) with the
+     Gauss-Legendre nodes and weights on [-1, 1]."
+    pi = 3.14159265358979
+    for i to n {
+        # Asymptotic initial guess for the i-th root (1-indexed).
+        ii = i + 1
+        x = cos((4.0 * ii - 1.0) * pi / (4.0 * n + 2.0))
+        # Newton iteration.
+        for _ to 30 {
+            pair = legendre_p_and_dp(n, x)
+            p  = at(pair, 0)
+            dp = at(pair, 1)
+            if abs(p) < 1.0e-15 { break }
+            x = x - p / dp
+        }
+        set(nodes_out, i, x)
+        # Weight formula.
+        pair = legendre_p_and_dp(n, x)
+        dp = at(pair, 1)
+        set(weights_out, i, 2.0 / ((1.0 - x * x) * dp * dp))
+    }
+    return 0
+}
+
+# ---- Build a 4-point rule -------------------------------------------
+
+n = 4
+nodes = zeros(n)
+weights = zeros(n)
+gauss_legendre(n, nodes, weights)
+
+narrate "4-point Gauss-Legendre nodes and weights:"
+show nodes
+show weights
+
+# ---- Integrate x^4 from -1 to 1 -------------------------------------
+
+# True value: int_{-1}^{1} x^4 dx = 2/5 = 0.4. Polynomial of degree 4
+# is integrated exactly by a 4-point Gauss rule (exact through 2n-1 = 7).
+estimate = 0.0
+for i to n {
+    xi = at(nodes, i)
+    wi = at(weights, i)
+    estimate += wi * xi * xi * xi * xi
+}
+
+narrate "Estimate of integral of x^4 from -1 to 1:"
+show estimate
+
+test "Gauss-Legendre exact for polynomials of degree <= 2n-1" {
+    assert_near(estimate, 2.0 / 5.0, 1e-12)
+}
