@@ -237,27 +237,105 @@ const EXAMPLES = [
   { name: "Hello",
     src: `# Welcome to Knot. Click Run, or press Cmd/Ctrl+Enter.\nprint("hello, world")\nprint(1 + 2 * 3)\n` },
 
-  { name: "take: plain-speak phrases",
+  { name: "take: reads like math prose",
     src:
-`# Knot reads like a math paper. \`take\` introduces an English phrase
-# that compiles down to an ordinary function call -- no axis= lookup,
-# no remembering whether it's argmin or vmin.
-v = [3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0]
-u = [1.0, 0.0, 0.0]
-w = [0.0, 1.0, 0.0]
-M = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+`# Z-score normalization, written the way a stats textbook says it:
+# "subtract the mean, divide by the standard deviation." Every line
+# is the prose translated almost verbatim. No axis= argument to
+# remember, no fluency required.
+v = [88.0, 92.0, 75.0, 81.0, 95.0, 70.0, 84.0, 90.0]
 
-print(take the sum of v)
+mu    = take the mean of v
+sigma = take the standard deviation of v
+
+# Broadcasting + take = the formula reads like the textbook.
+z = (v - mu) / sigma
+
+print("data:     ", v)
+print("mean:     ", mu)
+print("std dev:  ", sigma)
+print("z-scores: ", z)
+print("--- check: z should have mean ~0, std ~1 ---")
+print("mean of z:", take the mean of z)
+print("std  of z:", take the standard deviation of z)
+` },
+
+  { name: "take: linear regression",
+    src:
+`# Ordinary least squares fit y = a*x + b. The formulas, exactly the
+# way a textbook writes them:
+#   a = (n * sum(xy) - sum(x) * sum(y))  /  (n * sum(xx) - sum(x)^2)
+#   b = (sum(y) - a * sum(x))  /  n
+# Compare the knot transcription below to that math; the only
+# departure from prose is the assignment arrow.
+
+x = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+y = [2.1, 4.0, 5.9, 8.1, 10.2, 11.8, 14.0, 16.1]
+
+n   = take the size of x
+sx  = take the sum of x
+sy  = take the sum of y
+sxx = take the sum of (x * x)
+sxy = take the sum of (x * y)
+
+a = (n * sxy - sx * sy) / (n * sxx - sx * sx)
+b = (sy - a * sx) / n
+
+print("slope:    ", a)
+print("intercept:", b)
+
+# Plot data + fit. The fitted line gets a smooth x range; the input
+# points overlay it as their own trace.
+xf = linspace(0.0, 9.0, 100)
+plot(x,  y,            "data")
+plot(xf, a * xf + b,   "fit")
+` },
+
+  { name: "take: synonyms (forgive forgetting)",
+    src:
+`# Half the friction in numpy/pandas is verb-translation: was it
+# \`.mean\` or \`.average\`? \`.std\` or \`.stddev\`? \`.max\` or \`.amax\`?
+# The phrase table accepts multiple English forms for the same op so
+# you don't have to look it up.
+v = [3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0, 5.0, 3.0]
+
+print("--- central tendency ---")
 print(take the mean of v)
-print(take the standard deviation of v)
-print(take the dot product of u and w)
-print(take the L2 norm of v)
-print(take the transpose of M)
+print(take the average of v)        # synonym for mean
 
-# Phrases nest in expressions when wrapped in parens.
-print((take the sum of v) * 10)
-# Sub-expressions inside the hole work as you'd expect.
-print(take the sum of v + 100.0)
+print("--- spread ---")
+print(take the max of v)
+print(take the maximum of v)         # synonym
+print(take the min of v)
+print(take the minimum of v)
+
+print("--- vector magnitude ---")
+print(take the L2 norm of v)
+print(take the norm of v)            # default norm
+print(take the magnitude of v)       # physicist's name
+
+print("--- inner product (mathematician vs physicist again) ---")
+u = [1.0, 2.0, 3.0]
+w = [4.0, 5.0, 6.0]
+print(take the dot product of u and w)
+print(take the inner product of u and w)
+` },
+
+  { name: "take: composed with plots",
+    src:
+`# Phrases compile to plain Call nodes, so they slot into any
+# expression context -- including plot() args and other phrases.
+# Read the calls below as English: "plot x against the sine of x."
+
+x = linspace(-6.28, 6.28, 400)
+
+plot(x, take the sine of x,             "sin x")
+plot(x, take the cosine of x,           "cos x")
+
+# Phrases nest. The hole of one phrase can itself be a phrase. The
+# trailing "envelope" curve below reads as "the absolute value of
+# the sine of x."
+plot(x, take the absolute value of take the sine of x, "|sin x|")
 ` },
 
   { name: "Bisection (find sqrt(2))",
