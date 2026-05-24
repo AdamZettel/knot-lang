@@ -191,6 +191,10 @@
     word-break: break-word;
     overflow: auto;
   }
+  /* Hint lines (translation of a `take` phrase) appear as dim,
+     italicized comment text so they read as annotations rather than
+     program output. Matched in JS by the leading "# " + " -> ". */
+  #output .hint { color: #565f89; font-style: italic; }
   #output.has-error { color: var(--error); }
   #status {
     font-size: 12px;
@@ -236,6 +240,36 @@
 const EXAMPLES = [
   { name: "Hello",
     src: `# Welcome to Knot. Click Run, or press Cmd/Ctrl+Enter.\nprint("hello, world")\nprint(1 + 2 * 3)\n` },
+
+  { name: "take: hints teach you the syntax",
+    src:
+`# Every \`take ...\` phrase emits a "# <typed>  ->  <call>" hint to
+# the output panel below. Read the hint, write the call form next
+# time, drop the training wheels. The abacus metaphor: by externalizing
+# the operation visibly, you internalize it.
+
+v = [1.0, 2.0, 3.0, 4.0, 5.0]
+u = [3.0, 4.0]
+w = [1.0, 0.0]
+
+# Aggregates
+print(take the mean of v)
+print(take the standard deviation of v)
+
+# Math primitives
+print(take the square root of 49.0)
+print(take the absolute value of -7.5)
+
+# Linear algebra verbs
+print(take the dot product of u and w)
+print(take the projection of u onto w)
+print(take the angle between u and w)
+
+# Closure-shaped (still desugars cleanly even though it's wrapping
+# an anonymous function under the hood)
+print(take the derivative of x*x at 4.0)
+print(take the integral of sin(x) from 0.0 to 3.14159)
+` },
 
   { name: "take: reads like math prose",
     src:
@@ -790,7 +824,24 @@ function run() {
 
     // Split plot markers off from human-readable text before rendering.
     const { clean, traces } = extractPlots(text);
-    out.textContent = clean || '<no text output>';
+
+    // Color hint lines (`# take ... -> ...`) so they read as
+    // annotations rather than program output. Everything else passes
+    // through as plain text. textContent is replaced with innerHTML
+    // here, so we escape every line first.
+    const escape = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;');
+    const html = (clean || '<no text output>')
+      .split('\n')
+      .map(line => {
+        if (line.startsWith('# ') && line.includes(' -> ')) {
+          return '<span class="hint">' + escape(line) + '</span>';
+        }
+        return escape(line);
+      })
+      .join('\n');
+    out.innerHTML = html;
+
     renderPlot(traces);
 
     // Heuristic: if the (text) output mentions an error/diag prefix,

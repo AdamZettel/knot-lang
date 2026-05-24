@@ -177,6 +177,34 @@ inline const std::vector<PhrasePattern>& phrase_table() {
 // True iff `word` is the hole marker.
 inline bool is_hole(const std::string& word) { return word == "_"; }
 
+// Process-wide toggle for translation hints. When true, every
+// successful `take ...` phrase match prints "# <typed> -> <canonical>"
+// to stderr at parse time. The default is on -- the hints are the
+// language's mechanism for surfacing the desugared call so a reader
+// who's still learning the syntax sees both forms side by side.
+// The CLI's --no-hints flag flips this off.
+inline bool& phrase_hints_enabled() {
+    static bool flag = true;
+    return flag;
+}
+
+// Fill `?` placeholders in a canonical template with hole texts in
+// order. Used for the right-hand side of translation hints.
+inline std::string format_canonical(const std::string& tmpl,
+                                    const std::vector<std::string>& holes) {
+    std::string out;
+    out.reserve(tmpl.size() + 16);
+    size_t hi = 0;
+    for (char c : tmpl) {
+        if (c == '?' && hi < holes.size()) {
+            out += holes[hi++];
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
 // Try to match `pat` against `phrase_toks`. On success, fills
 // `hole_slices` with the token ranges (start, end-exclusive) for each
 // hole in left-to-right order, and returns true. On failure, returns

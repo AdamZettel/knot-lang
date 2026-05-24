@@ -691,6 +691,7 @@ int main(int argc, char** argv) {
         else if (arg == "--replay")    mode = Mode::Replay;
         else if (arg == "--test")      mode = Mode::Test;
         else if (arg == "--trap-nan") trap_nan = true;
+        else if (arg == "--no-hints")  phrase_hints_enabled() = false;
         else if (arg == "--record") {
             // Trace path is filled in below once we know the input filename.
             trace_path = "__placeholder__";

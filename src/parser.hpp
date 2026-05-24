@@ -3,6 +3,7 @@
 #include "diag.hpp"
 #include "phrases.hpp"
 #include "token.hpp"
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -788,6 +789,47 @@ private:
                 Span::merge(start, end_span));
             call->callee = std::move(callee);
             call->elems = std::move(hole_exprs);
+
+            // Translation hint: show the user what their English
+            // phrase desugared into. Off when phrase_hints_enabled()
+            // is false (set by the CLI's --no-hints flag).
+            // Emitted at parse time so the hints appear before the
+            // program's stdout. Source-slice the phrase and each
+            // hole directly so operators / punctuation come through
+            // exactly as the user typed them.
+            if (phrase_hints_enabled() && source != nullptr) {
+                auto src_slice = [&](Span sp) -> std::string {
+                    if (sp.start + sp.length > source->size()) return "";
+                    return source->substr(sp.start, sp.length);
+                };
+
+                // Full phrase: from `take` to the last phrase token.
+                Span full;
+                full.start = start.start;
+                full.length =
+                    (phrase_toks.back().span.start
+                     + phrase_toks.back().span.length)
+                    - start.start;
+                std::string typed = src_slice(full);
+
+                std::vector<std::string> hole_texts;
+                hole_texts.reserve(slices.size());
+                for (const auto& [lo, hi] : slices) {
+                    Span hsp;
+                    hsp.start = phrase_toks[lo].span.start;
+                    hsp.length =
+                        (phrase_toks[hi - 1].span.start
+                         + phrase_toks[hi - 1].span.length)
+                        - hsp.start;
+                    hole_texts.push_back(src_slice(hsp));
+                }
+
+                std::cerr << "# " << typed
+                          << "  ->  "
+                          << format_canonical(pat.canonical, hole_texts)
+                          << "\n";
+            }
+
             return call;
         }
 
