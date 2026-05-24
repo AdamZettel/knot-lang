@@ -245,9 +245,13 @@
   }
   #teach-target { color: #c0caf5; background: var(--bg); }
   #teach-typed  { color: #565f89; background: var(--bg); }
-  #teach-typed  .right { color: #9ece6a; }
-  #teach-typed  .wrong { color: var(--error); background: rgba(247, 118, 142, 0.18); }
-  #teach-typed  .cursor {
+  /* Namespaced class names. Earlier versions used .right / .wrong /
+     .cursor and collided with the right-pane's .right { display:
+     flex; flex-direction: column } -- every matched character
+     turned into a block flex container and stacked vertically. */
+  #teach-typed  .tt-ok  { color: #9ece6a; }
+  #teach-typed  .tt-err { color: var(--error); background: rgba(247, 118, 142, 0.18); }
+  #teach-typed  .tt-cur {
     border-left: 2px solid #c0caf5;
     animation: blink 1s steps(2, start) infinite;
   }
@@ -1015,15 +1019,119 @@ const CATALOG = {
     label: "linear algebra",
     methods: {
       lu_solve: {
-        desc: "solve A x = b via LU with partial pivoting (stdlib)",
+        desc: "solve A x = b via LU with partial pivoting (full algorithm)",
         source:
-`# LU solve via the stdlib (partial pivoting baked in).
+`# Solve A x = b by LU decomposition with partial pivoting.
+#
+# Three steps:
+#   1. Factor A as P L U   (P a permutation, L unit-lower, U upper).
+#      Done in-place in M: L below the diagonal (unit diagonal
+#      implicit), U on and above. perm[i] tracks the row swaps.
+#   2. Forward solve  L y = P b   for y.
+#   3. Back solve     U x = y     for x.
+
+def lu_solve(A, b, x_out) {
+    n = rows(A)
+
+    # Workspace: copy A into M; we factor in place.
+    M = zeros(n, n)
+    for i to n {
+        for j to n { set(M, i, j, at(A, i, j)) }
+    }
+    # perm[i] is the original row currently in row i.
+    perm = zeros(n)
+    for i to n { set(perm, i, i) }
+
+    # ---- 1. Factor with partial pivoting ------------------------
+
+    for k to n {
+        # Pick the row in k..n-1 with the largest |M[*, k]|. Swap
+        # it into row k. Pivoting keeps the multipliers <= 1 in
+        # magnitude and bounds the error blow-up.
+        pivot = k
+        pivval = abs(at(M, k, k))
+        i = k + 1
+        while i < n {
+            v = abs(at(M, i, k))
+            if v > pivval {
+                pivval = v
+                pivot = i
+            }
+            i += 1
+        }
+        if pivot != k {
+            # Swap rows k and pivot in M; mirror the swap in perm.
+            for j to n {
+                tmp = at(M, k, j)
+                set(M, k, j, at(M, pivot, j))
+                set(M, pivot, j, tmp)
+            }
+            tmp = at(perm, k)
+            set(perm, k, at(perm, pivot))
+            set(perm, pivot, tmp)
+        }
+        # Eliminate entries below the pivot. For each row i > k,
+        # subtract (M[i,k] / M[k,k]) * row_k. The multiplier is
+        # stored in M[i, k] -- it IS L[i, k] for later forward
+        # substitution.
+        i = k + 1
+        while i < n {
+            factor = at(M, i, k) / at(M, k, k)
+            set(M, i, k, factor)
+            j = k + 1
+            while j < n {
+                new_v = at(M, i, j) - factor * at(M, k, j)
+                set(M, i, j, new_v)
+                j += 1
+            }
+            i += 1
+        }
+    }
+
+    # ---- 2. Apply the row permutation to b ----------------------
+
+    pb = zeros(n)
+    for i to n {
+        set(pb, i, at(b, at(perm, i)))
+    }
+
+    # ---- 3. Forward solve  L y = P b ----------------------------
+
+    y = zeros(n)
+    for i to n {
+        s = at(pb, i)
+        j = 0
+        while j < i {
+            s -= at(M, i, j) * at(y, j)
+            j += 1
+        }
+        # L's diagonal is implicitly 1, so no divide here.
+        set(y, i, s)
+    }
+
+    # ---- 4. Back solve  U x = y ---------------------------------
+
+    k = n
+    while k > 0 {
+        i = k - 1
+        s = at(y, i)
+        j = i + 1
+        while j < n {
+            s -= at(M, i, j) * at(x_out, j)
+            j += 1
+        }
+        set(x_out, i, s / at(M, i, i))
+        k -= 1
+    }
+}
+
+# Demo: solve a 3x3 system. True answer: x = [1, 2, 1.5].
 A = [[2.0, 1.0, 0.0],
      [1.0, 3.0, 1.0],
      [0.0, 1.0, 2.0]]
-b = [3.0, 7.0, 5.0]
+b = [4.0, 8.5, 5.0]
 x = zeros(3)
-solve(A, b, x)
+lu_solve(A, b, x)
 print(x)
 `,
       },
@@ -2059,12 +2167,12 @@ function renderTeachTyped() {
   for (let i = 0; i < typed.length; i++) {
     const tc = typed[i];
     const xc = target[i];
-    const cls = (tc === xc) ? 'right' : 'wrong';
+    const cls = (tc === xc) ? 'tt-ok' : 'tt-err';
     // Render visible chars; for spaces, use the char directly so
     // they consume their normal width in the pre.
     out.push(`<span class="${cls}">${escapeHTML(tc)}</span>`);
   }
-  out.push('<span class="cursor"></span>');
+  out.push('<span class="tt-cur"></span>');
   teachTyped.innerHTML = out.length === 1 ? '&nbsp;' : out.join('');
   teachTarget.textContent = target.length === 0 ? ' ' : target;
 }
