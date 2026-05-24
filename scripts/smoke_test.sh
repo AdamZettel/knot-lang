@@ -327,6 +327,20 @@ GOT=$(./knot /tmp/_append_test.knot 2>&1)
 check "append (interp)" "3 1 two [10, 20]" "$GOT"
 rm -f /tmp/_append_test.knot
 
+echo "== iterate / repeat statements =="
+
+# iterate over collection, iterate from-to-as, and repeat-times all
+# desugar to existing for loops; verify the loop range matches.
+cat > /tmp/_iter.knot <<'EOF'
+v = [10, 20, 30]
+iterate over v as x { print(x) }
+iterate from 1 to 4 as k { print(k) }
+repeat 3 times { print(7) }
+EOF
+GOT=$(./knot --no-hints /tmp/_iter.knot 2>&1 | tr '\n' '|')
+check "iterate / repeat (interp)" "10|20|30|1|2|3|4|7|7|7|" "$GOT"
+rm -f /tmp/_iter.knot
+
 echo "== narrate statement =="
 
 # narrate fires on stdout in source order; --no-narrate suppresses.

@@ -1,0 +1,93 @@
+# Statement-level plainspeak phrases desugar to existing for-loops.
+# These tests verify the iteration ranges and that the body executes
+# the expected number of times with the expected values.
+
+test "iterate over vec yields each element" {
+    v = [10.0, 20.0, 30.0]
+    s = 0.0
+    iterate over v as x {
+        s += x
+    }
+    assert_eq(s, 60.0)
+}
+
+test "iterate over empty vec runs zero times" {
+    s = 99.0
+    iterate over zeros(0) as x {
+        s = -1.0
+    }
+    assert_eq(s, 99.0)
+}
+
+test "iterate from A to B is inclusive on both ends" {
+    s = 0
+    iterate from 1 to 5 as k {
+        s += k
+    }
+    # 1 + 2 + 3 + 4 + 5 = 15
+    assert_eq(s, 15.0)
+}
+
+test "iterate from 0 to 0 runs once" {
+    s = 0
+    iterate from 0 to 0 as k {
+        s += 1
+    }
+    assert_eq(s, 1)
+}
+
+test "iterate from A to B works with computed bounds" {
+    n = 4
+    s = 0
+    iterate from 1 to n as k {
+        s += k
+    }
+    # 1 + 2 + 3 + 4 = 10
+    assert_eq(s, 10.0)
+}
+
+test "repeat N times runs N times" {
+    count = 0
+    repeat 5 times {
+        count += 1
+    }
+    assert_eq(count, 5)
+}
+
+test "repeat 0 times runs zero times" {
+    count = 0
+    repeat 0 times {
+        count = 999
+    }
+    assert_eq(count, 0)
+}
+
+test "break works inside iterate" {
+    s = 0
+    iterate from 1 to 100 as k {
+        if k > 5 { break }
+        s += k
+    }
+    assert_eq(s, 15.0)
+}
+
+test "continue works inside iterate" {
+    s = 0
+    iterate from 1 to 5 as k {
+        if k == 3 { continue }
+        s += k
+    }
+    # 1 + 2 + 4 + 5 = 12
+    assert_eq(s, 12.0)
+}
+
+test "nested iterate / repeat" {
+    s = 0
+    iterate from 1 to 3 as i {
+        repeat 2 times {
+            s += i
+        }
+    }
+    # (1+1) + (2+2) + (3+3) = 12
+    assert_eq(s, 12.0)
+}

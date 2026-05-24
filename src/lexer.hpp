@@ -116,6 +116,8 @@ private:
                 {"test", Tok::Test},
                 {"show", Tok::Show},
                 {"narrate", Tok::Narrate},
+                {"iterate", Tok::Iterate},
+                {"repeat", Tok::Repeat},
                 // Python-style word operators, alongside symbol forms.
                 {"and", Tok::AndAnd}, {"or", Tok::OrOr}, {"not", Tok::Bang},
             };

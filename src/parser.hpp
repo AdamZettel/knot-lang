@@ -75,6 +75,8 @@ private:
         if (check(Tok::Test))    return parse_test();
         if (check(Tok::Show))    return parse_show();
         if (check(Tok::Narrate)) return parse_narrate();
+        if (check(Tok::Iterate)) return parse_iterate();
+        if (check(Tok::Repeat))  return parse_repeat();
         if (check(Tok::LBrace))  return parse_block();
 
         // Expression statement, plain assignment, or compound assignment.
@@ -336,6 +338,142 @@ private:
         s->expr = parse_expr();
         expect_terminator("narrate");
         return s;
+    }
+
+    // Statement-level plainspeak phrases. Each desugars directly to
+    // an existing control-flow AST node (StmtKind::For) and emits a
+    // translation hint at parse time so the user sees the desugared
+    // form they could have typed.
+    //
+    // iterate over EXPR as IDENT { body }
+    //     -> for IDENT in EXPR { body }
+    // iterate from A to B as IDENT { body }
+    //     -> for IDENT in arange(A, B + 1) { body }   (inclusive)
+    StmtPtr parse_iterate() {
+        Span start = cur().span;
+        ++pos; // 'iterate'
+
+        // Distinguish the two forms by the literal Ident following
+        // `iterate`. `over` and `from` aren't keywords, so we compare
+        // by text.
+        if (check(Tok::Ident) && (cur().text == "over" || cur().text == "from")) {
+            std::string lead = cur().text;
+            ++pos;
+            if (lead == "over") return parse_iterate_over_tail(start);
+            return parse_iterate_from_tail(start);
+        }
+        throw Diag(cur().span,
+            "expected `over` or `from` after `iterate`, got "
+            + std::string(tok_name(cur().kind)));
+    }
+
+    StmtPtr parse_iterate_over_tail(Span start) {
+        ExprPtr coll = parse_expr();
+        expect(Tok::As, "`as` after `iterate over EXPR`");
+        const Token& nm = expect(Tok::Ident,
+            "loop variable name after `as`");
+        std::string ident = nm.text;
+        std::vector<StmtPtr> body = parse_block_body();
+
+        emit_iterate_hint(start, "iterate over",
+            "for " + ident + " in <expr> { ... }");
+
+        auto s = std::make_unique<Stmt>(StmtKind::For, start);
+        s->for_form = ForForm::InElem;
+        s->name = ident;
+        s->expr = std::move(coll);
+        s->body = std::move(body);
+        return s;
+    }
+
+    StmtPtr parse_iterate_from_tail(Span start) {
+        ExprPtr lo = parse_expr();
+        expect(Tok::To, "`to` after `iterate from A`");
+        ExprPtr hi = parse_expr();
+        expect(Tok::As, "`as` after `iterate from A to B`");
+        const Token& nm = expect(Tok::Ident,
+            "loop variable name after `as`");
+        std::string ident = nm.text;
+        std::vector<StmtPtr> body = parse_block_body();
+
+        emit_iterate_hint(start, "iterate from",
+            "for " + ident + " in arange(<lo>, <hi> + 1) { ... }");
+
+        // Build: for IDENT in arange(LO, HI + 1) { body }
+        // The `+ 1` is added at parse time so `from A to B` is
+        // inclusive of both endpoints, matching math-paper notation.
+        Span hi_span = hi->span;
+        auto one = std::make_unique<Expr>(ExprKind::NumberLit, hi_span);
+        one->num = 1.0;
+        auto hi_plus_one = std::make_unique<Expr>(ExprKind::Binary, hi_span);
+        hi_plus_one->binop = BinOp::Add;
+        hi_plus_one->lhs = std::move(hi);
+        hi_plus_one->rhs = std::move(one);
+
+        auto callee = std::make_unique<Expr>(ExprKind::Ident, start);
+        callee->str = "arange";
+        auto arange_call = std::make_unique<Expr>(ExprKind::Call, start);
+        arange_call->callee = std::move(callee);
+        arange_call->elems.push_back(std::move(lo));
+        arange_call->elems.push_back(std::move(hi_plus_one));
+
+        auto s = std::make_unique<Stmt>(StmtKind::For, start);
+        s->for_form = ForForm::InElem;
+        s->name = ident;
+        s->expr = std::move(arange_call);
+        s->body = std::move(body);
+        return s;
+    }
+
+    // repeat EXPR times { body }
+    //     -> for _ to EXPR { body }
+    StmtPtr parse_repeat() {
+        Span start = cur().span;
+        ++pos; // 'repeat'
+        ExprPtr count = parse_expr();
+        // `times` is a literal word, not a keyword token.
+        if (!check(Tok::Ident) || cur().text != "times") {
+            throw Diag(cur().span,
+                "expected `times` after `repeat EXPR`, got "
+                + std::string(tok_name(cur().kind)));
+        }
+        ++pos; // 'times'
+        std::vector<StmtPtr> body = parse_block_body();
+
+        emit_iterate_hint(start, "repeat", "for _ to <count> { ... }");
+
+        auto s = std::make_unique<Stmt>(StmtKind::For, start);
+        s->for_form = ForForm::ToCount;
+        s->name = "_";
+        s->expr = std::move(count);
+        s->body = std::move(body);
+        return s;
+    }
+
+    // Helper: emit a "# <typed-phrase>  ->  <canonical>" line to
+    // stderr if hints are on, slicing the user's source for the
+    // typed form (covering everything from the leading keyword to
+    // the opening brace, exclusive).
+    void emit_iterate_hint(Span start, const char* /*kind*/, const std::string& canonical) {
+        if (!phrase_hints_enabled() || !source) return;
+        // Find the LBrace that opens the body -- it's the first one
+        // we passed (already consumed). Walk back to find it via toks.
+        // Easier: slice from start.start to the most-recent LBrace's
+        // span.start. Since parse_block_body() already consumed the
+        // brace, we look back for it.
+        size_t look = pos;
+        while (look > 0 && toks[look - 1].kind != Tok::LBrace) --look;
+        // look now points just past the LBrace; walk back one to
+        // get the brace itself.
+        if (look == 0) return;
+        size_t brace_idx = look - 1;
+        size_t end = toks[brace_idx].span.start;
+        if (end <= start.start || end > source->size()) return;
+        std::string typed = source->substr(start.start, end - start.start);
+        // Trim trailing whitespace.
+        while (!typed.empty() && (typed.back() == ' ' || typed.back() == '\n' || typed.back() == '\t'))
+            typed.pop_back();
+        std::cerr << "# " << typed << "  ->  " << canonical << "\n";
     }
 
     // show EXPR [, EXPR ...]   -- debug-print each expression as
