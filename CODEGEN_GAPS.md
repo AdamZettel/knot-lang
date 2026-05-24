@@ -17,6 +17,55 @@ Entries are ordered by **priority**:
 
 ## high
 
+### Top-level constants invisible inside function bodies
+
+**Surfaced by:** `examples/electronic_structure/00_h2_sto3g.knot`, which
+defines basis constants (`alpha_h`, `d_h`, `n_prim`) and geometry
+(`centers`, `Z`, `n_basis`) at top-level and references them from inside
+several helper functions.
+
+**What happens:**
+
+    error: use of undeclared identifier 'n_prim'
+
+The transpiler emits top-level statements into `main()`, so function
+bodies (which are file-scope C functions) can't see those locals. The
+interpreter handles this fine: top-level assignments live in `globals`
+and functions resolve up the scope chain.
+
+**Workaround:** pass the constants as parameters, or redeclare them
+inside each function that needs them (clunky but works).
+
+**Fix sketch:** at codegen time, identify "top-level constants" (single
+assignment, never reassigned, no compound-assign) and emit them as
+file-scope `static` declarations in C. For scalar nums this is trivial
+(`static double pi = 3.14...`); for vec/mat literals it needs a
+one-time initializer that runs before `main`. Either an `__attribute__((constructor))`
+init function or move the literal construction into `main()` and the
+function bodies receive them via a generated `init_globals()` call.
+~150 LOC.
+
+### Heterogeneous list types
+
+**Surfaced by:** any code that returns multiple values from a function
+by packing them into a list, e.g.
+`def eig_sym_2x2(M) { ...; return [lam1, lam2, U] }` — the eigenvalue
+solver in the electronic-structure thread originally took this shape.
+
+**What happens:** the codegen emits `cannot index double` because it
+doesn't infer a list-of-mixed-types return; the function is typed as
+returning a num.
+
+**Workaround:** out-parameters. Allocate the result containers in the
+caller and pass them in for the function to fill (LAPACK convention).
+
+**Fix sketch:** real tuple support would need a new CType, tuple-of-T
+plumbing through `c_decl`, calling convention, return handling. Or:
+support knot-list-of-num-and-mat via a tagged-union runtime value, but
+that's a much larger lift. ~300 LOC for tuples, more for tagged unions.
+The workaround is good enough for v1; the LAPACK-style out-parameter
+shape is idiomatic in numerics anyway.
+
 ### Hadamard `*` and `/` between two vecs / mats
 
 **Surfaced by:** `examples/stress/04_linreg.knot` (worked around

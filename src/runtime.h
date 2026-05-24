@@ -136,6 +136,36 @@ static inline knot_mat knot_mat_mul(knot_mat a, knot_mat b) {
     return r;
 }
 
+static inline knot_mat knot_mat_add(knot_mat a, knot_mat b) {
+    if (a.rows != b.rows || a.cols != b.cols) {
+        fprintf(stderr, "mat add: shape mismatch\n"); exit(1);
+    }
+    knot_mat r = knot_mat_new(a.rows, a.cols);
+    int n = a.rows * a.cols;
+    for (int i = 0; i < n; ++i) r.data[i] = a.data[i] + b.data[i];
+    return r;
+}
+
+static inline knot_mat knot_mat_sub(knot_mat a, knot_mat b) {
+    if (a.rows != b.rows || a.cols != b.cols) {
+        fprintf(stderr, "mat sub: shape mismatch\n"); exit(1);
+    }
+    knot_mat r = knot_mat_new(a.rows, a.cols);
+    int n = a.rows * a.cols;
+    for (int i = 0; i < n; ++i) r.data[i] = a.data[i] - b.data[i];
+    return r;
+}
+
+static inline knot_mat knot_mat_transpose(knot_mat a) {
+    knot_mat r = knot_mat_new(a.cols, a.rows);
+    for (int j = 0; j < a.cols; ++j) {
+        for (int i = 0; i < a.rows; ++i) {
+            r.data[j + (size_t)i * a.cols] = a.data[i + (size_t)j * a.rows];
+        }
+    }
+    return r;
+}
+
 static inline knot_vec knot_mat_vec(knot_mat a, knot_vec v) {
     if (a.cols != v.n) { fprintf(stderr, "matvec shape mismatch\n"); exit(1); }
     knot_vec r = knot_vec_new(a.rows);

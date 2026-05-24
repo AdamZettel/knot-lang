@@ -1,0 +1,428 @@
+# Restricted Hartree-Fock for H2 at fixed geometry in the STO-3G basis.
+# Reference: Szabo & Ostlund, "Modern Quantum Chemistry," section 3.5
+# (the "H2 / HeH+ in STO-3G" worked example).
+#
+# Expected total energy at R = 1.4 bohr: about -1.117 hartree.
+#
+# This is the first program in the electronic-structure thread. It
+# does everything from primitive Gaussian integrals up through the
+# SCF loop, with no production-code amenities (no DIIS, no symmetry,
+# no integral screening, no general-N eigensolver). N = 2 is small
+# enough that we can write the 2x2 eigenvalue analytically.
+
+pi = 3.141592653589793
+
+# ------------------------------------------------------------------
+# Basis: STO-3G for hydrogen
+# A single s-shell with three primitives. Coefficients d_p are
+# contraction coefficients on NORMALIZED primitive Gaussians:
+#   phi_p(r) = (2 alpha_p / pi)^(3/4) exp(-alpha_p |r-R|^2)
+# Then the contracted AO is
+#   chi(r) = sum_p d_p phi_p(r)
+# ------------------------------------------------------------------
+
+alpha_h = [3.42525091, 0.62391373, 0.16885540]
+d_h     = [0.15432897, 0.53532814, 0.44463454]
+n_prim = 3
+
+# ------------------------------------------------------------------
+# Molecule: H2 at R = 1.4 bohr along the z axis.
+# ------------------------------------------------------------------
+
+R_HH = 1.4
+# Atom centers stored as a 2x3 matrix (atom, coordinate).
+centers = [[0.0, 0.0, 0.0],
+           [0.0, 0.0, R_HH]]
+Z = [1.0, 1.0]
+n_atoms = 2
+n_basis = 2        # one contracted s on each H
+n_electrons = 2
+n_occ = 1          # n_electrons / 2 (RHF, doubly occupied)
+
+# Each basis function is identified by which atom it sits on.
+basis_atom = [0, 1]
+
+# ------------------------------------------------------------------
+# Boys function F_0(T) = integral_0^1 exp(-T t^2) dt
+# In closed form, F_0(T) = sqrt(pi / (4 T)) erf(sqrt(T)) for T > 0,
+# F_0(0) = 1. knot doesn't have erf, so we compute by direct
+# Simpson integration. This is slow per call but trivially correct
+# and reads like the math.
+# ------------------------------------------------------------------
+
+def boys_F0(T) {
+    if T < 1.0e-8 {
+        # Series at T = 0: F_0(T) = 1 - T/3 + T^2/10 - T^3/42 + ...
+        return 1.0 - T / 3.0 + T * T / 10.0
+    }
+    # Wanted: `take the integral of exp(-T * t * t) from 0 to 1`, but the
+    # take-phrase closure-shape requires a single free variable in the body
+    # and both T (captured arg) and t (integration variable) are free. Drop
+    # to the underlying simpson call with an explicit fn(t) -> ....
+    return simpson(fn(t) -> exp(-T * t * t), 0.0, 1.0, 60)
+}
+
+# ------------------------------------------------------------------
+# Distance and vector helpers (each "center" is a length-3 vec).
+# ------------------------------------------------------------------
+
+def dist_sq(A, B) {
+    "Squared euclidean distance between two 3-vectors."
+    d0 = A[0] - B[0]
+    d1 = A[1] - B[1]
+    d2 = A[2] - B[2]
+    return d0 * d0 + d1 * d1 + d2 * d2
+}
+
+def gauss_product_center(a, A, b, B) {
+    "Gaussian product theorem: center of the product of two s-Gaussians."
+    p = a + b
+    P = zeros(3)
+    P[0] = (a * A[0] + b * B[0]) / p
+    P[1] = (a * A[1] + b * B[1]) / p
+    P[2] = (a * A[2] + b * B[2]) / p
+    return P
+}
+
+# ------------------------------------------------------------------
+# Primitive integrals over two s-type Gaussians.
+# All formulas are textbook (Szabo & Ostlund appendix A).
+# ------------------------------------------------------------------
+
+def prim_overlap(a, A, b, B) {
+    "Overlap (a A | b B) for two normalized primitive s-Gaussians."
+    p = a + b
+    r2 = dist_sq(A, B)
+    K = exp(-a * b / p * r2)
+    Na = pow(2.0 * a / pi, 0.75)
+    Nb = pow(2.0 * b / pi, 0.75)
+    return Na * Nb * pow(pi / p, 1.5) * K
+}
+
+def prim_kinetic(a, A, b, B) {
+    "Kinetic energy (a A | -1/2 nabla^2 | b B)."
+    p = a + b
+    r2 = dist_sq(A, B)
+    S = prim_overlap(a, A, b, B)
+    return a * b / p * (3.0 - 2.0 * a * b / p * r2) * S
+}
+
+def prim_nuclear(a, A, b, B, C, Zc) {
+    "Nuclear attraction (a A | -Zc/|r-C| | b B)."
+    p = a + b
+    Na = pow(2.0 * a / pi, 0.75)
+    Nb = pow(2.0 * b / pi, 0.75)
+    P = gauss_product_center(a, A, b, B)
+    rAB = dist_sq(A, B)
+    rPC = dist_sq(P, C)
+    K = exp(-a * b / p * rAB)
+    return -2.0 * pi / p * Zc * Na * Nb * K * boys_F0(p * rPC)
+}
+
+def prim_eri(a, A, b, B, c, C, d, D) {
+    "Two-electron repulsion (a A b B | c C d D) over four s primitives."
+    p = a + b
+    q = c + d
+    Na = pow(2.0 * a / pi, 0.75)
+    Nb = pow(2.0 * b / pi, 0.75)
+    Nc = pow(2.0 * c / pi, 0.75)
+    Nd = pow(2.0 * d / pi, 0.75)
+    rAB = dist_sq(A, B)
+    rCD = dist_sq(C, D)
+    P = gauss_product_center(a, A, b, B)
+    Q = gauss_product_center(c, C, d, D)
+    rPQ = dist_sq(P, Q)
+    K1 = exp(-a * b / p * rAB)
+    K2 = exp(-c * d / q * rCD)
+    pref = 2.0 * pow(pi, 2.5) / (p * q * sqrt(p + q))
+    return Na * Nb * Nc * Nd * pref * K1 * K2 * boys_F0(p * q / (p + q) * rPQ)
+}
+
+# ------------------------------------------------------------------
+# Helpers to read a center from `centers` (a 2x3 matrix) as a vec.
+# ------------------------------------------------------------------
+
+def center_of(atom_idx) {
+    "Pluck the 3-vec center of atom atom_idx out of the 2x3 centers mat."
+    R = zeros(3)
+    R[0] = centers[atom_idx, 0]
+    R[1] = centers[atom_idx, 1]
+    R[2] = centers[atom_idx, 2]
+    return R
+}
+
+# ------------------------------------------------------------------
+# Contracted integral over two basis functions mu, nu. Sums the
+# primitive integral over the 3x3 grid of (p, q) contractions.
+# ------------------------------------------------------------------
+
+def contracted_one_elec(mu, nu, kind, C, Zc) {
+    "kind = 0 overlap, 1 kinetic, 2 nuclear attraction to (C, Zc).
+     For overlap/kinetic, C and Zc are ignored."
+    A = center_of(basis_atom[mu])
+    B = center_of(basis_atom[nu])
+    total = 0.0
+    for p to n_prim {
+        for q to n_prim {
+            a = alpha_h[p]
+            b = alpha_h[q]
+            dp = d_h[p]
+            dq = d_h[q]
+            v = 0.0
+            if kind == 0 { v = prim_overlap(a, A, b, B) }
+            if kind == 1 { v = prim_kinetic(a, A, b, B) }
+            if kind == 2 { v = prim_nuclear(a, A, b, B, C, Zc) }
+            total += dp * dq * v
+        }
+    }
+    return total
+}
+
+def contracted_eri(mu, nu, lam, sig) {
+    "Two-electron (mu nu | lam sig) over contracted basis functions."
+    A = center_of(basis_atom[mu])
+    B = center_of(basis_atom[nu])
+    C = center_of(basis_atom[lam])
+    D = center_of(basis_atom[sig])
+    total = 0.0
+    for p to n_prim {
+        for q to n_prim {
+            for r to n_prim {
+                for s to n_prim {
+                    a = alpha_h[p]
+                    b = alpha_h[q]
+                    c = alpha_h[r]
+                    dd = alpha_h[s]
+                    coef4 = d_h[p] * d_h[q] * d_h[r] * d_h[s]
+                    total += coef4 * prim_eri(a, A, b, B, c, C, dd, D)
+                }
+            }
+        }
+    }
+    return total
+}
+
+# ------------------------------------------------------------------
+# Build the one-electron matrices S, T, V_nuc and the core
+# Hamiltonian H_core = T + V_nuc.
+# ------------------------------------------------------------------
+
+narrate "Building S (overlap), T (kinetic), V (nuclear attraction)..."
+
+S = zeros(n_basis, n_basis)
+T = zeros(n_basis, n_basis)
+V = zeros(n_basis, n_basis)
+H_core = zeros(n_basis, n_basis)
+
+for mu to n_basis {
+    for nu to n_basis {
+        # zero C, zero Zc for non-nuclear kinds.
+        z3 = zeros(3)
+        S[mu, nu] = contracted_one_elec(mu, nu, 0, z3, 0.0)
+        T[mu, nu] = contracted_one_elec(mu, nu, 1, z3, 0.0)
+        v_total = 0.0
+        for atom to n_atoms {
+            Rc = center_of(atom)
+            v_total += contracted_one_elec(mu, nu, 2, Rc, Z[atom])
+        }
+        V[mu, nu] = v_total
+        H_core[mu, nu] = T[mu, nu] + V[mu, nu]
+    }
+}
+
+show S
+show T
+show V
+show H_core
+
+# ------------------------------------------------------------------
+# Build the (mu nu | lam sig) tensor. With n_basis = 2 we have
+# 2^4 = 16 entries; we store them as a vec of length 16 indexed by
+# i = mu*8 + nu*4 + lam*2 + sig. A real codebase wants a 4D tensor.
+# ------------------------------------------------------------------
+
+narrate "Building two-electron integrals..."
+
+n4 = n_basis * n_basis * n_basis * n_basis
+eri = zeros(n4)
+def eri_idx(mu, nu, lam, sig) {
+    return mu * n_basis * n_basis * n_basis + nu * n_basis * n_basis + lam * n_basis + sig
+}
+for mu to n_basis {
+    for nu to n_basis {
+        for lam to n_basis {
+            for sig to n_basis {
+                eri[eri_idx(mu, nu, lam, sig)] = contracted_eri(mu, nu, lam, sig)
+            }
+        }
+    }
+}
+
+show eri
+
+# ------------------------------------------------------------------
+# Symmetric orthogonalization: X = S^(-1/2). For 2x2 we can write
+# this in closed form, but here we use the eigendecomposition of S
+# (which we also need later for F'). For S = U diag(s) U^T,
+# X = U diag(1/sqrt(s)) U^T.
+#
+# 2x2 symmetric eigendecomp in closed form.
+# ------------------------------------------------------------------
+
+def eig_sym_2x2(M, vals_out, vecs_out) {
+    "Diagonalize a 2x2 symmetric matrix M. Fills vals_out (a length-2
+     vec) with eigenvalues in ascending order and vecs_out (a 2x2 mat)
+     with the corresponding eigenvectors as columns.
+
+     Knot returns a single value, and --exec doesn't have a list type
+     to pack [lam1, lam2, U] into, so we follow the LAPACK convention
+     and write into preallocated buffers."
+    a = M[0, 0]
+    b = M[0, 1]
+    d = M[1, 1]
+    tr = a + d
+    det = a * d - b * b
+    disc = sqrt(tr * tr - 4.0 * det)
+    lam1 = 0.5 * (tr - disc)
+    lam2 = 0.5 * (tr + disc)
+    # Eigenvector for lam1.
+    v1x = 0.0
+    v1y = 0.0
+    if abs(b) > 1.0e-12 {
+        v1x = lam1 - d
+        v1y = b
+    } else {
+        if a < d {
+            v1x = 1.0
+            v1y = 0.0
+        } else {
+            v1x = 0.0
+            v1y = 1.0
+        }
+    }
+    n1 = sqrt(v1x * v1x + v1y * v1y)
+    v1x = v1x / n1
+    v1y = v1y / n1
+    # Orthogonal partner: rotate 90 degrees.
+    v2x = -v1y
+    v2y = v1x
+    vals_out[0] = lam1
+    vals_out[1] = lam2
+    vecs_out[0, 0] = v1x
+    vecs_out[1, 0] = v1y
+    vecs_out[0, 1] = v2x
+    vecs_out[1, 1] = v2y
+    return 0
+}
+
+narrate "Symmetric-orthogonalize S -> X = S^{-1/2}..."
+
+s_vals = zeros(2)
+s_vecs = zeros(2, 2)
+eig_sym_2x2(S, s_vals, s_vecs)
+# X = U diag(1/sqrt(s)) U^T
+D_inv_sqrt = zeros(2, 2)
+D_inv_sqrt[0, 0] = 1.0 / sqrt(s_vals[0])
+D_inv_sqrt[1, 1] = 1.0 / sqrt(s_vals[1])
+X = s_vecs @ D_inv_sqrt @ transpose(s_vecs)
+show X
+
+# ------------------------------------------------------------------
+# SCF loop. Start from the core-Hamiltonian guess (P = 0).
+# ------------------------------------------------------------------
+
+# Nuclear-nuclear repulsion. Just one pair here.
+E_nuc = Z[0] * Z[1] / sqrt(dist_sq(center_of(0), center_of(1)))
+narrate "Nuclear repulsion:"
+show E_nuc
+
+P = zeros(n_basis, n_basis)
+E_old = 0.0
+E_total = 0.0
+tol = 1.0e-8
+max_iter = 50
+converged = 0
+
+narrate "Entering SCF..."
+for iter to max_iter {
+    # Build G_mu_nu = sum_lam_sig P_lam_sig [(mu nu | lam sig)
+    #                                       - 1/2 (mu lam | nu sig)]
+    G = zeros(n_basis, n_basis)
+    for mu to n_basis {
+        for nu to n_basis {
+            g = 0.0
+            for lam to n_basis {
+                for sig to n_basis {
+                    j_int = eri[eri_idx(mu, nu, lam, sig)]
+                    k_int = eri[eri_idx(mu, lam, nu, sig)]
+                    g += P[lam, sig] * (j_int - 0.5 * k_int)
+                }
+            }
+            G[mu, nu] = g
+        }
+    }
+    F = H_core + G
+
+    # Transform to orthonormal basis and diagonalize.
+    Fp = transpose(X) @ F @ X
+    eps_vals = zeros(2)
+    Cp = zeros(2, 2)
+    eig_sym_2x2(Fp, eps_vals, Cp)
+    C = X @ Cp
+
+    # New density (RHF, doubly occupied): P_mu_nu = 2 sum_{a occupied} C_mu_a C_nu_a
+    P_new = zeros(n_basis, n_basis)
+    for mu to n_basis {
+        for nu to n_basis {
+            s = 0.0
+            for a to n_occ {
+                s += C[mu, a] * C[nu, a]
+            }
+            P_new[mu, nu] = 2.0 * s
+        }
+    }
+
+    # Electronic energy. E_elec = 1/2 sum_mu_nu P_mu_nu (H_core_mu_nu + F_mu_nu)
+    E_elec = 0.0
+    for mu to n_basis {
+        for nu to n_basis {
+            E_elec += 0.5 * P_new[mu, nu] * (H_core[mu, nu] + F[mu, nu])
+        }
+    }
+    E_total = E_elec + E_nuc
+
+    # Convergence: max abs change in density.
+    delta = 0.0
+    for mu to n_basis {
+        for nu to n_basis {
+            d = P_new[mu, nu] - P[mu, nu]
+            if d < 0.0 { d = -d }
+            if d > delta { delta = d }
+        }
+    }
+    P = P_new
+
+    narrate "iter / E_total / delta:"
+    show iter
+    show E_total
+    show delta
+    if delta < tol {
+        converged = 1
+        break
+    }
+    E_old = E_total
+}
+
+if converged == 1 {
+    narrate "Converged."
+} else {
+    narrate "SCF did not converge in max_iter."
+}
+narrate "Final E_total (hartree):"
+show E_total
+
+test "H2/STO-3G total energy near textbook -1.117" {
+    # The SCF converges in a couple of iterations for H2/STO-3G;
+    # textbook value is -1.117 hartree (Szabo & Ostlund table 3.2).
+    assert_near(E_total, -1.1167, 1.0e-3)
+}

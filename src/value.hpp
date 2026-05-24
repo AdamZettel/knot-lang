@@ -156,6 +156,12 @@ struct Value {
 struct Env {
     std::unordered_map<std::string, Value> vars;
     EnvPtr parent;
+    // True for the frame at a function-call boundary: reads still walk
+    // up to find stdlib / module globals, but writes stop at this frame
+    // and create a local instead of clobbering the outer binding. The
+    // sub-frames a function spawns (for, while, blocks) do not set this;
+    // they let assignment walk back up to the function's locals.
+    bool is_function_boundary = false;
 
     Env() = default;
     explicit Env(EnvPtr p) : parent(std::move(p)) {}
@@ -181,10 +187,16 @@ struct Env {
     // Read-only access to this frame's bindings (used by the REPL's `lslib`).
     const std::unordered_map<std::string, Value>& bindings() const { return vars; }
 
-    // Walks the chain. Returns false if not found.
+    // Walks the chain to find an existing binding to update. Stops at
+    // function boundaries -- so a local `s = 0` inside `def sum(v)`
+    // doesn't clobber a top-level `s` of the calling script. Returns
+    // false if not found before the boundary or the chain ends; the
+    // caller (StmtKind::Assign) then defines a new local in the current
+    // frame.
     bool assign(const std::string& name, Value val) {
         auto it = vars.find(name);
         if (it != vars.end()) { it->second = std::move(val); return true; }
+        if (is_function_boundary) return false;
         if (parent) return parent->assign(name, std::move(val));
         return false;
     }

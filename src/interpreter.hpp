@@ -381,11 +381,22 @@ private:
                     // an alias. Vec/mat tags live inside the value and
                     // aren't touched here.
                     if (v.is_num()) v.tag.reset();
-                    // Auto-create-or-reassign. If the name exists anywhere
-                    // in the scope chain, update in place; otherwise create
-                    // in the current scope. This is Python-like.
+                    // Try to update an existing binding within the current
+                    // function (or at top-level, anywhere). assign() walks
+                    // up but stops at the function-call boundary so a
+                    // local `s = 0` in a helper doesn't clobber a top-level
+                    // `s`. If no existing binding is reachable, define a
+                    // fresh local in the nearest function-or-globals scope
+                    // (NOT the current for/if/while sub-env) so the
+                    // variable survives block exits -- Python-style
+                    // function-scope flattening.
                     if (!env->assign(s.name, v)) {
-                        env->define(s.name, std::move(v));
+                        EnvPtr target_scope = env;
+                        while (target_scope->parent
+                               && !target_scope->is_function_boundary) {
+                            target_scope = target_scope->parent;
+                        }
+                        target_scope->define(s.name, std::move(v));
                     }
                 }
                 return;
@@ -402,7 +413,19 @@ private:
                     if (!cur) throw Diag(s.span,
                         "compound assignment to undefined variable '" + s.name + "'");
                     Value nv = apply_binop(s.comp_op, *cur, rhs, s.span);
-                    env->assign(s.name, std::move(nv));
+                    if (!env->assign(s.name, std::move(nv))) {
+                        // find() saw the name, but assign() couldn't reach
+                        // it -- it lives across a function-call boundary
+                        // and writes don't cross. Give a clear diagnostic
+                        // pointing at the fix.
+                        throw Diag(s.span,
+                            "cannot compound-assign to '" + s.name
+                            + "': it's in an outer-function scope and "
+                              "writes from inside a function don't cross "
+                              "the call boundary. Use a 1-element vec "
+                              "(state = [v]; state[0] += ...) or pass an "
+                              "explicit out-parameter.");
+                    }
                 }
                 return;
             }
@@ -993,6 +1016,7 @@ private:
                     + std::to_string(args.size()));
 
             auto frame = std::make_shared<Env>(f.closure);
+            frame->is_function_boundary = true;
             for (size_t i = 0; i < nparams; ++i) {
                 if (i < args.size()) {
                     frame->define(f.params[i], args[i]);

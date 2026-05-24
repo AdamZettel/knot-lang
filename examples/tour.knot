@@ -86,12 +86,15 @@ M = [[2, 1], [1, 3]]
 print(power_iter(M))  # uses default iters=50
 print(power_iter(M, 5))  # override iters
 
-# Closures still work
+# Closures still work. Captured numbers are read-only; to mutate
+# state across a function boundary use a small mutable container
+# (1-element vec). This protects script-level state from being
+# clobbered by helpers that happen to reuse a common name.
 def make_counter() {
-    c = 0
+    state = [0]
     def step() {
-        c += 1
-        return c
+        state[0] += 1
+        return state[0]
     }
     return step
 }

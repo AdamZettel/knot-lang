@@ -409,6 +409,8 @@ private:
                     return {"(" + l.code + " + " + r.code + ")", CType::Num};
                 if (l.type == CType::Vec && r.type == CType::Vec)
                     return {"knot_vec_add(" + l.code + ", " + r.code + ")", CType::Vec};
+                if (l.type == CType::Mat && r.type == CType::Mat)
+                    return {"knot_mat_add(" + l.code + ", " + r.code + ")", CType::Mat};
                 fail(e.span, std::string("+ undefined for ")
                              + ctype_name(l.type) + " and " + ctype_name(r.type));
             case BinOp::Sub:
@@ -416,6 +418,8 @@ private:
                     return {"(" + l.code + " - " + r.code + ")", CType::Num};
                 if (l.type == CType::Vec && r.type == CType::Vec)
                     return {"knot_vec_sub(" + l.code + ", " + r.code + ")", CType::Vec};
+                if (l.type == CType::Mat && r.type == CType::Mat)
+                    return {"knot_mat_sub(" + l.code + ", " + r.code + ")", CType::Mat};
                 fail(e.span, "- undefined for these types");
             case BinOp::Mul:
                 if (l.type == CType::Num && r.type == CType::Num)
@@ -593,6 +597,18 @@ private:
             if (args.size() == 1 && args[0].type == CType::Vec)
                 return {"knot_vec_norm(" + args[0].code + ")", CType::Num};
             fail(e.span, "norm(vec)");
+        }
+        if (name == "transpose") {
+            if (args.size() == 1 && args[0].type == CType::Mat)
+                return {"knot_mat_transpose(" + args[0].code + ")", CType::Mat};
+            fail(e.span, "transpose(mat)");
+        }
+        if (name == "matmul") {
+            if (args.size() == 2 && args[0].type == CType::Mat && args[1].type == CType::Mat)
+                return {"knot_mat_mul(" + args[0].code + ", " + args[1].code + ")", CType::Mat};
+            if (args.size() == 2 && args[0].type == CType::Mat && args[1].type == CType::Vec)
+                return {"knot_mat_vec(" + args[0].code + ", " + args[1].code + ")", CType::Vec};
+            fail(e.span, "matmul: mat*mat or mat*vec");
         }
         if (name == "at") {
             // Untagged indexing — same as knot_vec_get / knot_mat_get.
