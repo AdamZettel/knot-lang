@@ -1323,7 +1323,7 @@ print(trap(fn(x) -> sin(x), 0.0, pi, 100))
         source:
 `# Composite Simpson, 4th-order. Use the stdlib version.
 pi = 3.14159265358979
-# Use the `take` phrase for inline natural form.
+# The plainspeak phrase form below desugars to simpson(...).
 print(take the integral of sin(x) from 0.0 to pi)
 `,
       },

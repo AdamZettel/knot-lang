@@ -327,6 +327,29 @@ GOT=$(./knot /tmp/_append_test.knot 2>&1)
 check "append (interp)" "3 1 two [10, 20]" "$GOT"
 rm -f /tmp/_append_test.knot
 
+echo "== playground html =="
+
+# Extract the inline <script>...</script> block from web/index.html
+# and parse it with node. If it fails, a JS-syntax break broke the
+# playground's example dropdown / console / teach mode -- which is
+# what happened on 2026-05-24 when an unescaped backtick inside a
+# template-literal catalog entry leaked knot code into raw JS. The
+# WASM and the python http server can't catch that.
+if command -v node >/dev/null 2>&1; then
+    awk '/<script>$/,/<\/script>/' web/index.html | sed '1d;$d' > /tmp/_playground_script.js
+    if node --check /tmp/_playground_script.js >/dev/null 2>&1; then
+        echo "  PASS  playground script parses"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  playground script does not parse"
+        node --check /tmp/_playground_script.js 2>&1 | head -5 | sed 's/^/        /'
+        FAIL=$((FAIL + 1))
+    fi
+    rm -f /tmp/_playground_script.js
+else
+    echo "  SKIP  node not available; can't parse-check playground"
+fi
+
 echo "== fuzz (methodological) =="
 
 # Methodological fuzzer: run the same program under multiple
