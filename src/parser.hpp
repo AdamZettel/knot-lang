@@ -1,6 +1,7 @@
 #pragma once
 #include "ast.hpp"
 #include "diag.hpp"
+#include "phrases.hpp"
 #include "token.hpp"
 #include <string>
 #include <vector>
@@ -478,6 +479,106 @@ private:
         return e;
     }
 
+    // ---- Plain-speak phrases (`take ...`) ---------------------------
+    //
+    // Called from parse_primary when we've decided `take` should
+    // introduce a phrase. The current token is `take` (an Ident);
+    // we skip it, gobble tokens until end-of-phrase, match against
+    // src/phrases.hpp::phrase_table(), and emit a plain Call.
+    //
+    // End-of-phrase is the first newline, semicolon, EOF, or any
+    // unmatched closing brace/bracket/paren -- i.e. the same
+    // terminators that would naturally end a top-level expression.
+    // An open brace also ends the phrase, so phrases work inside
+    // `for i in take the range from 0 to 10 { ... }`.
+    ExprPtr parse_phrase() {
+        Span start = cur().span;
+        ++pos; // 'take'
+
+        // Collect the phrase's tokens, tracking bracket depth so a
+        // parenthesized sub-expression inside the phrase doesn't end
+        // it early on its outer ')'. At depth 0 the phrase ends on
+        // any token that would naturally separate or close the
+        // surrounding context: statement terminators, block braces,
+        // a comma (so phrase-as-call-arg works), or an outer closing
+        // paren/bracket (so phrase-as-call-arg / phrase-in-vec work).
+        size_t phrase_start = pos;
+        int depth = 0;
+        while (pos < toks.size()) {
+            Tok k = toks[pos].kind;
+            if (depth == 0) {
+                if (k == Tok::Newline || k == Tok::Semicolon
+                 || k == Tok::Eof || k == Tok::RBrace
+                 || k == Tok::LBrace || k == Tok::Comma
+                 || k == Tok::RParen || k == Tok::RBracket) {
+                    break;
+                }
+            }
+            if (k == Tok::LParen || k == Tok::LBracket) ++depth;
+            else if (k == Tok::RParen || k == Tok::RBracket) {
+                if (depth > 0) --depth;
+            }
+            ++pos;
+        }
+
+        std::vector<Token> phrase_toks(toks.begin() + phrase_start,
+                                       toks.begin() + pos);
+
+        if (phrase_toks.empty()) {
+            throw Diag(start, "`take` must be followed by a phrase like "
+                              "`take the sum of v`");
+        }
+
+        // Try each pattern in declared order; first match wins.
+        const auto& table = phrase_table();
+        for (const auto& pat : table) {
+            std::vector<std::pair<size_t, size_t>> slices;
+            if (!try_match_phrase(pat, phrase_toks, slices)) continue;
+
+            // Build the Call expression. The function reference is
+            // an Ident named after the pattern's `function` field --
+            // resolved at runtime via normal lexical lookup, so the
+            // user can shadow / override these names if they want.
+            Span end_span = phrase_toks.back().span;
+            auto callee = std::make_unique<Expr>(ExprKind::Ident, start);
+            callee->str = pat.function;
+
+            std::vector<ExprPtr> hole_exprs;
+            hole_exprs.reserve(slices.size());
+            for (const auto& [lo, hi] : slices) {
+                // Re-parse the hole's token slice as a knot
+                // expression. Need to terminate it with an Eof so the
+                // sub-parser knows when to stop.
+                std::vector<Token> sub(phrase_toks.begin() + lo,
+                                       phrase_toks.begin() + hi);
+                Token eof_tok;
+                eof_tok.kind = Tok::Eof;
+                eof_tok.span = phrase_toks[hi - 1].span;
+                sub.push_back(eof_tok);
+                Parser sub_parser(sub);
+                hole_exprs.push_back(sub_parser.parse_expr());
+            }
+
+            auto call = std::make_unique<Expr>(ExprKind::Call,
+                Span::merge(start, end_span));
+            call->callee = std::move(callee);
+            call->elems = std::move(hole_exprs);
+            return call;
+        }
+
+        // No pattern matched. Build a snippet of the source phrase
+        // text so the diagnostic is actionable.
+        std::string snippet;
+        for (const auto& t : phrase_toks) {
+            if (!snippet.empty()) snippet += " ";
+            snippet += t.text.empty()
+                ? std::string(tok_name(t.kind))
+                : t.text;
+        }
+        throw Diag(start,
+            "no `take` phrase matches: `take " + snippet + "`");
+    }
+
     // Inside [ ]: either an expression, or a slice `a:b`, `:b`, `a:`, or `:`.
     ExprPtr parse_index_part() {
         Span start = cur().span;
@@ -537,6 +638,17 @@ private:
                 return std::make_unique<Expr>(ExprKind::NilLit, t.span);
             }
             case Tok::Ident: {
+                // `take` is a soft keyword: phrase introducer if the
+                // next token is an Ident or Number (matching one of
+                // the patterns in src/phrases.hpp), otherwise a
+                // normal identifier so `take = 42`, `take(args)`, and
+                // `take + 1` all still work.
+                if (t.text == "take" && pos + 1 < toks.size()) {
+                    Tok nk = toks[pos + 1].kind;
+                    if (nk == Tok::Ident || nk == Tok::Number) {
+                        return parse_phrase();
+                    }
+                }
                 ++pos;
                 auto e = std::make_unique<Expr>(ExprKind::Ident, t.span);
                 e->str = t.text;

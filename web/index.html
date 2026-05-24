@@ -17,16 +17,23 @@
 <head>
 <meta charset="utf-8">
 <title>Knot — playground</title>
+<!-- During active iteration on the playground, browsers can hold onto
+     a stale index.html for surprisingly long even after Cmd-Shift-R.
+     These headers tell the browser not to cache this file at all. The
+     WASM module (knot.js) and the CDN deps (Plotly, CodeMirror) are
+     unaffected and still cache normally. -->
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <!-- Plotly is loaded from CDN. ~3MB, served gzipped; cached across
      reloads. Used to render `plot(x, y)` calls from knot programs. -->
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 
-<!-- CodeMirror 5 + a small simple-mode grammar for knot. CM5 is ~250KB
-     total (core + theme + simple-mode addon); CDN-cached. Picked CM5
-     over CM6 because the simple-mode addon takes a regex-table that
-     fits in this file; no build step. -->
+<!-- CodeMirror 5 + a small simple-mode grammar for knot. We load CM
+     core + the simple-mode addon but NOT a theme CSS file -- the
+     `knot-night` theme below is defined entirely inline so no CDN
+     theme rules can override it. -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/ayu-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/simple.min.js"></script>
 <style>
@@ -136,30 +143,38 @@
     background: var(--panel);
     border-bottom: 1px solid var(--border);
   }
-  /* CodeMirror fills the editor pane; theme is ayu-dark with our own
-     accent overrides so the syntax colors don't clash with the rest
-     of the page. */
+  /* CodeMirror editor pane. The `knot-night` theme is defined entirely
+     by the rules below -- no CDN theme CSS, no defaults leaking
+     through. Palette is Tokyo Night Storm: cool blues/purples with
+     warm orange/green accents for the values you read most often
+     (numbers and strings). */
   #editor { flex: 1; min-height: 0; overflow: hidden; }
   .CodeMirror {
     height: 100% !important;
     font-family: var(--mono);
     font-size: 13px;
     line-height: 1.5;
-    background: var(--bg);
   }
-  .CodeMirror-gutters { background: var(--bg); border-right: 1px solid var(--border); }
-  .CodeMirror-linenumber { color: #555; }
-  .cm-s-ayu-dark.CodeMirror, .cm-s-ayu-dark .CodeMirror-gutters { background: var(--bg); }
-  .cm-s-ayu-dark .cm-keyword  { color: #ff8f40; }
-  .cm-s-ayu-dark .cm-atom     { color: #d2a6ff; }
-  .cm-s-ayu-dark .cm-number   { color: #f29e74; }
-  .cm-s-ayu-dark .cm-string   { color: #aad94c; }
-  .cm-s-ayu-dark .cm-comment  { color: #5c6773; font-style: italic; }
-  .cm-s-ayu-dark .cm-builtin  { color: #59c2ff; }
-  .cm-s-ayu-dark .cm-variable { color: #cbccc6; }
-  .cm-s-ayu-dark .cm-def      { color: #ffb454; }
-  .cm-s-ayu-dark .cm-operator { color: #cbccc6; }
-  .cm-s-ayu-dark .cm-bracket  { color: #cbccc6; }
+
+  .cm-s-knot-night.CodeMirror             { background: #1a1b26; color: #c0caf5; }
+  .cm-s-knot-night .CodeMirror-gutters    { background: #1a1b26; border-right: 1px solid #2a2e3e; }
+  .cm-s-knot-night .CodeMirror-linenumber { color: #3b4261; }
+  .cm-s-knot-night .CodeMirror-cursor     { border-left-color: #c0caf5; }
+  .cm-s-knot-night .CodeMirror-activeline-background  { background: rgba(255,255,255,0.03); }
+  .cm-s-knot-night.CodeMirror-focused .CodeMirror-selected,
+  .cm-s-knot-night .CodeMirror-selected   { background: #2a3050 !important; }
+
+  .cm-s-knot-night .cm-keyword  { color: #bb9af7; }   /* if / for / def / return / test   -- purple */
+  .cm-s-knot-night .cm-atom     { color: #f7768e; }   /* True / False / None              -- pink */
+  .cm-s-knot-night .cm-builtin  { color: #7dcfff; }   /* sin / print / linspace / ...     -- light cyan */
+  .cm-s-knot-night .cm-string   { color: #9ece6a; }   /*                                  -- green */
+  .cm-s-knot-night .cm-number   { color: #ff9e64; }   /*                                  -- orange (Tokyo Night canonical) */
+  .cm-s-knot-night .cm-def      { color: #7aa2f7; }   /* function name after `def`        -- blue */
+  .cm-s-knot-night .cm-comment  { color: #565f89; font-style: italic; }
+  .cm-s-knot-night .cm-variable { color: #c0caf5; }
+  .cm-s-knot-night .cm-operator { color: #89ddff; }   /*                                  -- cyan accent */
+  .cm-s-knot-night .cm-bracket  { color: #c0caf5; }
+  .cm-s-knot-night .CodeMirror-matchingbracket { color: #ff9e64 !important; text-decoration: underline; }
 
   #output {
     flex: 1;
@@ -188,7 +203,7 @@
 
 <header>
   <h1>Knot</h1>
-  <span class="dim">tree-walking interpreter in your browser</span>
+  <span class="dim">tree-walking interpreter in your browser · tokyo-night</span>
   <span class="spacer"></span>
   <select id="examples"><option value="">examples...</option></select>
   <button id="run" class="primary" disabled>Run (⌘↵)</button>
@@ -221,6 +236,29 @@
 const EXAMPLES = [
   { name: "Hello",
     src: `# Welcome to Knot. Click Run, or press Cmd/Ctrl+Enter.\nprint("hello, world")\nprint(1 + 2 * 3)\n` },
+
+  { name: "take: plain-speak phrases",
+    src:
+`# Knot reads like a math paper. \`take\` introduces an English phrase
+# that compiles down to an ordinary function call -- no axis= lookup,
+# no remembering whether it's argmin or vmin.
+v = [3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0]
+u = [1.0, 0.0, 0.0]
+w = [0.0, 1.0, 0.0]
+M = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+
+print(take the sum of v)
+print(take the mean of v)
+print(take the standard deviation of v)
+print(take the dot product of u and w)
+print(take the L2 norm of v)
+print(take the transpose of M)
+
+# Phrases nest in expressions when wrapped in parens.
+print((take the sum of v) * 10)
+# Sub-expressions inside the hole work as you'd expect.
+print(take the sum of v + 100.0)
+` },
 
   { name: "Bisection (find sqrt(2))",
     src:
@@ -368,8 +406,11 @@ CodeMirror.defineSimpleMode('knot', {
     { regex: /-?\b\d+\.\d+(?:[eE][+-]?\d+)?\b/,      token: 'number' },
     { regex: /-?\b\d+(?:[eE][+-]?\d+)?\b/,           token: 'number' },
     { regex: /\b(True|False|None)\b/,                token: 'atom' },
-    // Hard keywords (anything in src/token.hpp's kw map).
-    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|and|or|not)\b/, token: 'keyword' },
+    // Hard keywords (anything in src/token.hpp's kw map) plus
+    // `take` (a soft keyword that introduces plain-speak phrases;
+    // colored like a keyword for visual recognition even though it
+    // can technically still be used as a variable name).
+    { regex: /\b(if|else|while|loop|for|to|in|as|def|return|break|continue|test|and|or|not|take)\b/, token: 'keyword' },
     // Function-definition name in `def NAME(` -- color as 'def' so it
     // stands out from regular variable references.
     { regex: /(?:(?<=\bdef\s))[a-zA-Z_][a-zA-Z0-9_]*/, token: 'def' },
@@ -414,7 +455,7 @@ const plotPh     = document.getElementById('plot-placeholder');
 const cm = CodeMirror(editorHost, {
   value:           EXAMPLES[0].src,
   mode:            'knot',
-  theme:           'ayu-dark',
+  theme:           'knot-night',
   lineNumbers:     true,
   indentUnit:      4,
   indentWithTabs:  false,

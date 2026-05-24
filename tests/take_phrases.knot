@@ -1,0 +1,140 @@
+# `take ...` plain-speak phrases. Phase 10a MVP coverage.
+#
+# These all compile down to plain Call AST nodes pointing at existing
+# builtins / stdlib functions. The phrase syntax is sugar -- if a test
+# breaks here without the underlying builtin changing, the phrase
+# table or matcher is the suspect.
+
+test "take the sum of vec" {
+    v = [1.0, 2.0, 3.0, 4.0]
+    assert_eq(take the sum of v, 10.0)
+}
+
+test "take the product of vec" {
+    v = [2.0, 3.0, 4.0]
+    assert_eq(take the product of v, 24.0)
+}
+
+test "take the mean / average synonym" {
+    v = [2.0, 4.0, 6.0]
+    assert_eq(take the mean of v, 4.0)
+    assert_eq(take the average of v, 4.0)
+}
+
+test "take the max / maximum synonym" {
+    v = [3.0, 1.0, 4.0, 1.0, 5.0]
+    assert_eq(take the max of v, 5.0)
+    assert_eq(take the maximum of v, 5.0)
+}
+
+test "take the min / minimum synonym" {
+    v = [3.0, 1.0, 4.0, 1.0, 5.0]
+    assert_eq(take the min of v, 1.0)
+    assert_eq(take the minimum of v, 1.0)
+}
+
+test "take the median" {
+    v = [1.0, 5.0, 2.0, 4.0, 3.0]
+    assert_eq(take the median of v, 3.0)
+}
+
+test "take the standard deviation (multi-word literal)" {
+    v = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+    assert_near(take the standard deviation of v, 2.13809, 1e-5)
+}
+
+test "take the transpose of mat" {
+    M = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    T = take the transpose of M
+    assert_eq(rows(T), 3)
+    assert_eq(cols(T), 2)
+    assert_eq(at(T, 0, 0), 1.0)
+    assert_eq(at(T, 2, 1), 6.0)
+}
+
+test "take the trace of a square mat" {
+    M = [[1.0, 2.0], [3.0, 4.0]]
+    assert_eq(take the trace of M, 5.0)
+}
+
+test "take the L2 norm beats the norm in matching order" {
+    v = [3.0, 4.0]
+    # Both forms should land on the same function.
+    assert_eq(take the L2 norm of v, 5.0)
+    assert_eq(take the norm of v, 5.0)
+    assert_eq(take the magnitude of v, 5.0)
+}
+
+test "take the dot product of u and v (two-hole pattern)" {
+    u = [1.0, 2.0, 3.0]
+    v = [4.0, 5.0, 6.0]
+    # 1*4 + 2*5 + 3*6 = 32
+    assert_eq(take the dot product of u and v, 32.0)
+    assert_eq(take the inner product of u and v, 32.0)
+}
+
+test "take the size / length of vec" {
+    v = [1.0, 2.0, 3.0, 4.0, 5.0]
+    assert_eq(take the size of v, 5)
+    assert_eq(take the length of v, 5)
+}
+
+test "take the number of rows / columns of mat" {
+    M = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    assert_eq(take the number of rows of M, 2)
+    assert_eq(take the number of columns of M, 3)
+}
+
+test "take the sine / cosine / square root / exponential" {
+    pi = 3.14159265358979
+    assert_near(take the sine of 0.0, 0.0)
+    assert_near(take the cosine of pi, -1.0, 1e-10)
+    assert_eq(take the square root of 25.0, 5.0)
+    assert_eq(take the absolute value of -7.0, 7.0)
+    assert_near(take the exponential of 0.0, 1.0)
+    assert_near(take the natural log of 1.0, 0.0)
+    assert_near(take the logarithm of 1.0, 0.0)
+}
+
+test "take the matrix product of A and B" {
+    A = [[1.0, 2.0], [3.0, 4.0]]
+    B = [[5.0, 6.0], [7.0, 8.0]]
+    C = take the matrix product of A and B
+    # [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]] = [[19, 22], [43, 50]]
+    assert_eq(at(C, 0, 0), 19.0)
+    assert_eq(at(C, 0, 1), 22.0)
+    assert_eq(at(C, 1, 0), 43.0)
+    assert_eq(at(C, 1, 1), 50.0)
+}
+
+# ---- Edge cases ---------------------------------------------------
+
+test "subexpression inside a hole is parsed correctly" {
+    v = [1.0, 2.0, 3.0]
+    w = [10.0, 20.0, 30.0]
+    # The hole is `v + w` -- the matcher should slurp the whole
+    # expression, not split on `+`.
+    assert_eq(take the sum of v + w, 66.0)  # sum([11, 22, 33])
+}
+
+test "phrase nested in a bigger expression via parens" {
+    v = [1.0, 2.0, 3.0]
+    # The phrase evaluates to 6, the outer expression yields 60.
+    assert_eq((take the sum of v) * 10, 60.0)
+}
+
+test "take still works as a variable name" {
+    take = 42
+    assert_eq(take + 1, 43)
+    assert_eq(take * 2, 84)
+}
+
+test "take(args) still works as a function call" {
+    # If we define a function named `take`, calling it must NOT enter
+    # phrase mode -- the next token is `(`, not an Ident.
+    # We can't redefine a function inside a test because tests share
+    # globals after they run, but we use a name binding to a builtin
+    # as a stand-in: `take = sin` and then `take(0.0)`.
+    take = sin
+    assert_near(take(0.0), 0.0)
+}
