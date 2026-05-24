@@ -1996,10 +1996,9 @@ function runConsoleCommand(argv) {
       '  cat METHOD            -- print the source of METHOD',
       '  load METHOD           -- replace the editor with METHOD',
       '  paste METHOD          -- append METHOD to the editor',
-      '  teach METHOD          -- line-by-line typing practice',
-      '  wb METHOD             -- alias for teach (whiteboard)',
+      '  teach METHOD [-r N]   -- line-by-line typing practice, N passes per line',
+      '  wb METHOD [-r N]      -- alias for teach (whiteboard)',
       '  reveal                -- exit teach mode, paste source',
-      '  repeat N              -- passes per line in teach mode (default 1)',
       '  clear                 -- clear console history',
       '',
       'In teach mode:',
@@ -2067,10 +2066,40 @@ function runConsoleCommand(argv) {
   }
 
   if (cmd === 'teach' || cmd === 'wb') {
-    if (args.length !== 1) { writeConsole('usage: teach METHOD', 'err'); return; }
-    const hit = findMethod(args[0]);
-    if (!hit) { writeConsole(`unknown method '${args[0]}'`, 'err'); return; }
-    enterTeachMode(hit);
+    // Parse: teach METHOD [-r N]
+    let method = null;
+    let repeat = 1;
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === '-r' || a === '--repeat') {
+        const n = parseInt(args[++i], 10);
+        if (!Number.isInteger(n) || n < 1 || n > 50) {
+          writeConsole('-r expects an integer in [1, 50]', 'err');
+          return;
+        }
+        repeat = n;
+      } else if (a.startsWith('-r')) {
+        // Allow `-r3` glued together.
+        const n = parseInt(a.slice(2), 10);
+        if (!Number.isInteger(n) || n < 1 || n > 50) {
+          writeConsole('-r expects an integer in [1, 50]', 'err');
+          return;
+        }
+        repeat = n;
+      } else if (!method) {
+        method = a;
+      } else {
+        writeConsole(`unexpected argument '${a}'`, 'err');
+        return;
+      }
+    }
+    if (!method) {
+      writeConsole('usage: teach METHOD [-r N]', 'err');
+      return;
+    }
+    const hit = findMethod(method);
+    if (!hit) { writeConsole(`unknown method '${method}'`, 'err'); return; }
+    enterTeachMode(hit, repeat);
     return;
   }
 
@@ -2080,32 +2109,6 @@ function runConsoleCommand(argv) {
       return;
     }
     exitTeachMode(true);
-    return;
-  }
-
-  if (cmd === 'repeat') {
-    if (args.length === 0) {
-      writeConsole(`teach repeat count is ${teachRepeat}. Usage: repeat N`, 'info');
-      return;
-    }
-    const n = parseInt(args[0], 10);
-    if (!Number.isInteger(n) || n < 1 || n > 50) {
-      writeConsole('repeat: N must be an integer in [1, 50]', 'err');
-      return;
-    }
-    teachRepeat = n;
-    try { localStorage.setItem('knot-teach-repeat', String(n)); }
-    catch (e) { /* localStorage might be unavailable */ }
-    writeConsole(
-      `teach repeat count set to ${n}. Each line will require ${n} clean pass${n === 1 ? '' : 'es'}.`,
-      'ok');
-    // If a teach session is active, update progress display.
-    if (teachActive) {
-      // If we just bumped repeat above the current pass, the line
-      // user JUST finished now needs more work. Don't reset
-      // teachPass; let the change take effect from the next line.
-      updateTeachProgress();
-    }
     return;
   }
 
@@ -2153,14 +2156,7 @@ let teachActive  = null;
 let teachLines   = [];
 let teachLineIdx = 0;
 let teachPass    = 1;          // current pass on the current line (1-indexed)
-let teachRepeat  = 1;          // how many clean passes per line to require
-
-// Repeat count persists across sessions. Validation happens in the
-// console command; here we just read whatever was saved.
-try {
-  const v = parseInt(localStorage.getItem('knot-teach-repeat'), 10);
-  if (Number.isInteger(v) && v >= 1 && v <= 50) teachRepeat = v;
-} catch (e) { /* ignore */ }
+let teachRepeat  = 1;          // passes per line, set from -r on the teach command
 
 // Lines that don't merit retyping in teach mode -- the user reads
 // them in the score but doesn't drill them. Comments and blanks.
@@ -2253,11 +2249,12 @@ function updateTeachProgress() {
   teachProgress.textContent = text;
 }
 
-function enterTeachMode(hit) {
+function enterTeachMode(hit, repeat) {
   teachActive  = hit;
   teachLines   = hit.entry.source.replace(/\n$/, '').split('\n');
   teachLineIdx = nextRealLine(0);
   teachPass    = 1;
+  teachRepeat  = (Number.isInteger(repeat) && repeat >= 1) ? repeat : 1;
   document.body.classList.add('teach-mode');
   teachTitle.textContent = `teach: ${hit.cat}/${hit.key}`;
   updateTeachProgress();
@@ -2266,8 +2263,8 @@ function enterTeachMode(hit) {
   // Defer focus so the panel's display:flex is applied first.
   setTimeout(() => teachInput.focus(), 0);
   const repeatNote = teachRepeat > 1
-    ? ` Each line needs ${teachRepeat} clean passes (\`repeat N\` to change).`
-    : ' (\`repeat N\` makes each line take N clean passes.)';
+    ? ` Each line needs ${teachRepeat} clean passes.`
+    : ' (Add `-r N` to teach for N passes per line.)';
   writeConsole(
     `teach mode: ${hit.cat}/${hit.key}.` + repeatNote +
     ' Enter to advance, Tab for 4 spaces, Esc exits.', 'ok');
@@ -2407,7 +2404,7 @@ function pushHistory(cmd) {
 // ---------------------------------------------------------------------
 const CONSOLE_COMMANDS = [
   'help', 'ls', 'cat', 'load', 'paste',
-  'teach', 'wb', 'reveal', 'repeat', 'clear',
+  'teach', 'wb', 'reveal', 'clear',
 ];
 
 function allMethodNames() {
