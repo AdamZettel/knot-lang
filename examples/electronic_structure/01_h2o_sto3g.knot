@@ -219,7 +219,7 @@ def prim_overlap(alpha, A, la, beta, B, lb) {
 
 # ------------------------------------------------------------------
 # Get the lmn 3-vector for a basis function. (We'd just pass
-# `basis_lmn[i]`, but knot's mat[i] would return a row; we want a
+# basis_lmn[i], but knot's mat[i] would return a row; we want a
 # 3-vec.)
 # ------------------------------------------------------------------
 

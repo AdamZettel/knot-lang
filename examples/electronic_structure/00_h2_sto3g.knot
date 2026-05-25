@@ -55,7 +55,7 @@ def boys_F0(T) {
         # Series at T = 0: F_0(T) = 1 - T/3 + T^2/10 - T^3/42 + ...
         return 1.0 - T / 3.0 + T * T / 10.0
     }
-    # Wanted: `take the integral of exp(-T * t * t) from 0 to 1`, but the
+    # Wanted: take the integral of exp(-T * t * t) from 0 to 1, but the
     # take-phrase closure-shape requires a single free variable in the body
     # and both T (captured arg) and t (integration variable) are free. Drop
     # to the underlying simpson call with an explicit fn(t) -> ....
@@ -139,7 +139,7 @@ def prim_eri(a, A, b, B, c, C, d, D) {
 }
 
 # ------------------------------------------------------------------
-# Helpers to read a center from `centers` (a 2x3 matrix) as a vec.
+# Helpers to read a center from "centers" (a 2x3 matrix) as a vec.
 # ------------------------------------------------------------------
 
 def center_of(atom_idx) {
