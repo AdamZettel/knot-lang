@@ -645,6 +645,11 @@ private:
             }
             fail(e.span, "zeros: bad args");
         }
+        if (name == "panic") {
+            if (args.size() != 1 || args[0].type != CType::Str)
+                fail(e.span, "panic(str)");
+            return {"({ fputs(" + args[0].code + ", stderr); fputc('\\n', stderr); exit(1); 0.0; })", CType::Num};
+        }
         if (name == "rank") {
             if (args.size() != 1 || args[0].type != CType::Tensor)
                 fail(e.span, "rank(tensor)");

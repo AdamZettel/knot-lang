@@ -478,4 +478,342 @@ H_core = T + V
 narrate "Core Hamiltonian (T + V):"
 show H_core
 
-narrate "One-electron part done. ERI comes next."
+# ------------------------------------------------------------------
+# Two-electron repulsion integrals (mu nu | lam sig).
+#
+# Obara-Saika 4-center vertical recurrence. The auxiliary
+# [a b | c d]^(m) is indexed by an integer m (the Boys-function
+# order); the integral we want at the end is m = 0.
+#
+# Base case (all four angular momenta zero):
+#   [00 00; m] = (2 pi^(5/2) / (p q sqrt(p+q)))
+#                * K_AB K_CD F_m(rho |P - Q|^2)
+#
+# Recurrence (raising la, the other three similar with appropriate
+# axis vectors and p / q swaps):
+#   [(la + e_i) lb lc ld; m]
+#     = (P_i - A_i) [la lb lc ld; m]
+#     + (W_i - P_i) [la lb lc ld; m+1]
+#     + la_i/(2p) ([la-e_i lb lc ld; m] - (rho/p)[la-e_i lb lc ld; m+1])
+#     + lb_i/(2p) ([la lb-e_i lc ld; m] - (rho/p)[la lb-e_i lc ld; m+1])
+#     + lc_i/(2(p+q)) [la lb lc-e_i ld; m+1]
+#     + ld_i/(2(p+q)) [la lb lc ld-e_i; m+1]
+#
+# We use the "lowering" form: when called with non-zero a, lower
+# the first nonzero axis of la and apply the corresponding raising
+# formula in reverse. Reference: Helgaker / Jorgensen / Olsen
+# section 9.10.
+# ------------------------------------------------------------------
+
+def eri_aux(a, A, la, b, B, lb, c, C, lc, d, D, ld, m) {
+    p = a + b
+    q = c + d
+    P = gauss_product_center(a, A, b, B)
+    Q = gauss_product_center(c, C, d, D)
+    pq = p + q
+    rho = p * q / pq
+    W = zeros(3)
+    W[0] = (p * P[0] + q * Q[0]) / pq
+    W[1] = (p * P[1] + q * Q[1]) / pq
+    W[2] = (p * P[2] + q * Q[2]) / pq
+
+    # Lower la first if any nonzero.
+    a_axis = first_nonzero(la)
+    if a_axis >= 0 {
+        i = a_axis
+        la_m = lmn_copy_lower(la, i)
+        X_PA = P[i] - A[i]
+        X_WP = W[i] - P[i]
+        v1 = eri_aux(a, A, la_m, b, B, lb, c, C, lc, d, D, ld, m)
+        v2 = eri_aux(a, A, la_m, b, B, lb, c, C, lc, d, D, ld, m + 1)
+        res = X_PA * v1 + X_WP * v2
+        if la_m[i] > 0 {
+            la_mm = lmn_copy_lower(la_m, i)
+            v3 = eri_aux(a, A, la_mm, b, B, lb, c, C, lc, d, D, ld, m)
+            v4 = eri_aux(a, A, la_mm, b, B, lb, c, C, lc, d, D, ld, m + 1)
+            res += la_m[i] / (2.0 * p) * (v3 - rho / p * v4)
+        }
+        if lb[i] > 0 {
+            lb_m = lmn_copy_lower(lb, i)
+            v3 = eri_aux(a, A, la_m, b, B, lb_m, c, C, lc, d, D, ld, m)
+            v4 = eri_aux(a, A, la_m, b, B, lb_m, c, C, lc, d, D, ld, m + 1)
+            res += lb[i] / (2.0 * p) * (v3 - rho / p * v4)
+        }
+        if lc[i] > 0 {
+            lc_m = lmn_copy_lower(lc, i)
+            v4 = eri_aux(a, A, la_m, b, B, lb, c, C, lc_m, d, D, ld, m + 1)
+            res += lc[i] / (2.0 * pq) * v4
+        }
+        if ld[i] > 0 {
+            ld_m = lmn_copy_lower(ld, i)
+            v4 = eri_aux(a, A, la_m, b, B, lb, c, C, lc, d, D, ld_m, m + 1)
+            res += ld[i] / (2.0 * pq) * v4
+        }
+        return res
+    }
+    b_axis = first_nonzero(lb)
+    if b_axis >= 0 {
+        i = b_axis
+        lb_m = lmn_copy_lower(lb, i)
+        X_PB = P[i] - B[i]
+        X_WP = W[i] - P[i]
+        v1 = eri_aux(a, A, la, b, B, lb_m, c, C, lc, d, D, ld, m)
+        v2 = eri_aux(a, A, la, b, B, lb_m, c, C, lc, d, D, ld, m + 1)
+        res = X_PB * v1 + X_WP * v2
+        if lb_m[i] > 0 {
+            lb_mm = lmn_copy_lower(lb_m, i)
+            v3 = eri_aux(a, A, la, b, B, lb_mm, c, C, lc, d, D, ld, m)
+            v4 = eri_aux(a, A, la, b, B, lb_mm, c, C, lc, d, D, ld, m + 1)
+            res += lb_m[i] / (2.0 * p) * (v3 - rho / p * v4)
+        }
+        if lc[i] > 0 {
+            lc_m = lmn_copy_lower(lc, i)
+            v4 = eri_aux(a, A, la, b, B, lb_m, c, C, lc_m, d, D, ld, m + 1)
+            res += lc[i] / (2.0 * pq) * v4
+        }
+        if ld[i] > 0 {
+            ld_m = lmn_copy_lower(ld, i)
+            v4 = eri_aux(a, A, la, b, B, lb_m, c, C, lc, d, D, ld_m, m + 1)
+            res += ld[i] / (2.0 * pq) * v4
+        }
+        return res
+    }
+    c_axis = first_nonzero(lc)
+    if c_axis >= 0 {
+        i = c_axis
+        lc_m = lmn_copy_lower(lc, i)
+        X_QC = Q[i] - C[i]
+        X_WQ = W[i] - Q[i]
+        v1 = eri_aux(a, A, la, b, B, lb, c, C, lc_m, d, D, ld, m)
+        v2 = eri_aux(a, A, la, b, B, lb, c, C, lc_m, d, D, ld, m + 1)
+        res = X_QC * v1 + X_WQ * v2
+        if lc_m[i] > 0 {
+            lc_mm = lmn_copy_lower(lc_m, i)
+            v3 = eri_aux(a, A, la, b, B, lb, c, C, lc_mm, d, D, ld, m)
+            v4 = eri_aux(a, A, la, b, B, lb, c, C, lc_mm, d, D, ld, m + 1)
+            res += lc_m[i] / (2.0 * q) * (v3 - rho / q * v4)
+        }
+        if ld[i] > 0 {
+            ld_m = lmn_copy_lower(ld, i)
+            v3 = eri_aux(a, A, la, b, B, lb, c, C, lc_m, d, D, ld_m, m)
+            v4 = eri_aux(a, A, la, b, B, lb, c, C, lc_m, d, D, ld_m, m + 1)
+            res += ld[i] / (2.0 * q) * (v3 - rho / q * v4)
+        }
+        return res
+    }
+    d_axis = first_nonzero(ld)
+    if d_axis >= 0 {
+        i = d_axis
+        ld_m = lmn_copy_lower(ld, i)
+        X_QD = Q[i] - D[i]
+        X_WQ = W[i] - Q[i]
+        v1 = eri_aux(a, A, la, b, B, lb, c, C, lc, d, D, ld_m, m)
+        v2 = eri_aux(a, A, la, b, B, lb, c, C, lc, d, D, ld_m, m + 1)
+        res = X_QD * v1 + X_WQ * v2
+        if ld_m[i] > 0 {
+            ld_mm = lmn_copy_lower(ld_m, i)
+            v3 = eri_aux(a, A, la, b, B, lb, c, C, lc, d, D, ld_mm, m)
+            v4 = eri_aux(a, A, la, b, B, lb, c, C, lc, d, D, ld_mm, m + 1)
+            res += ld_m[i] / (2.0 * q) * (v3 - rho / q * v4)
+        }
+        return res
+    }
+    # Base case: all zero.
+    K_AB = exp(-a * b / p * dist_sq(A, B))
+    K_CD = exp(-c * d / q * dist_sq(C, D))
+    T = rho * dist_sq(P, Q)
+    return K_AB * K_CD * 2.0 * pow(pi, 2.5) / (p * q * sqrt(pq)) * boys_F(m, T)
+}
+
+def prim_eri(a, A, la, b, B, lb, c, C, lc, d, D, ld) {
+    return eri_aux(a, A, la, b, B, lb, c, C, lc, d, D, ld, 0)
+}
+
+def contracted_eri(mu, nu, lam, sig) {
+    A = center_of(basis_atom[mu])
+    B = center_of(basis_atom[nu])
+    Cc = center_of(basis_atom[lam])
+    Dd = center_of(basis_atom[sig])
+    la = lmn_of(mu)
+    lb = lmn_of(nu)
+    lc = lmn_of(lam)
+    ld = lmn_of(sig)
+    total = 0.0
+    for p to n_prim {
+        for q to n_prim {
+            for r to n_prim {
+                for s to n_prim {
+                    a = basis_alpha[mu,  p]
+                    b = basis_alpha[nu,  q]
+                    cv = basis_alpha[lam, r]
+                    dv = basis_alpha[sig, s]
+                    ca = basis_coef[mu,  p]
+                    cb = basis_coef[nu,  q]
+                    cc = basis_coef[lam, r]
+                    cd = basis_coef[sig, s]
+                    Na = primitive_norm(a,  la)
+                    Nb = primitive_norm(b,  lb)
+                    Nc = primitive_norm(cv, lc)
+                    Nd = primitive_norm(dv, ld)
+                    pe = prim_eri(a, A, la, b, B, lb, cv, Cc, lc, dv, Dd, ld)
+                    total += ca * cb * cc * cd * Na * Nb * Nc * Nd * pe
+                }
+            }
+        }
+    }
+    return total
+}
+
+narrate "Building two-electron integral tensor (this is the expensive step)..."
+
+eri = zeros(n_basis, n_basis, n_basis, n_basis)
+# Use 8-fold permutational symmetry: (mu nu | lam sig) is invariant
+# under mu<->nu, lam<->sig, and (mu nu)<->(lam sig). Compute each
+# unique value once and copy to its symmetry images.
+for mu to n_basis {
+    for nu to mu + 1 {
+        # mu nu has mu >= nu (8-fold-symmetric storage)
+        mu_nu = mu * (mu + 1) / 2 + nu
+        for lam to n_basis {
+            for sig to lam + 1 {
+                lam_sig = lam * (lam + 1) / 2 + sig
+                if mu_nu >= lam_sig {
+                    val = contracted_eri(mu, nu, lam, sig)
+                    # Eight images.
+                    eri[mu, nu, lam, sig] = val
+                    eri[nu, mu, lam, sig] = val
+                    eri[mu, nu, sig, lam] = val
+                    eri[nu, mu, sig, lam] = val
+                    eri[lam, sig, mu, nu] = val
+                    eri[sig, lam, mu, nu] = val
+                    eri[lam, sig, nu, mu] = val
+                    eri[sig, lam, nu, mu] = val
+                }
+            }
+        }
+    }
+}
+
+narrate "ERI tensor built. Onto orthogonalization + SCF."
+
+# ------------------------------------------------------------------
+# Symmetric orthogonalization: X = S^{-1/2}.
+# ------------------------------------------------------------------
+
+s_vals = zeros(n_basis)
+s_vecs = zeros(n_basis, n_basis)
+eig_sym(S, s_vals, s_vecs)
+D_inv_sqrt = zeros(n_basis, n_basis)
+for i to n_basis {
+    D_inv_sqrt[i, i] = 1.0 / sqrt(s_vals[i])
+}
+X = s_vecs @ D_inv_sqrt @ transpose(s_vecs)
+
+# ------------------------------------------------------------------
+# Nuclear repulsion.
+# ------------------------------------------------------------------
+
+E_nuc = 0.0
+for atom_a to n_atoms {
+    for atom_b to atom_a + 1 {
+        if atom_a > atom_b {
+            R = sqrt(dist_sq(center_of(atom_a), center_of(atom_b)))
+            E_nuc += Z[atom_a] * Z[atom_b] / R
+        }
+    }
+}
+narrate "Nuclear-repulsion energy E_nuc:"
+show E_nuc
+
+# ------------------------------------------------------------------
+# SCF.
+# ------------------------------------------------------------------
+
+P_dens = zeros(n_basis, n_basis)
+E_total = 0.0
+tol = 1.0e-7
+max_iter = 80
+converged = 0
+
+narrate "Entering SCF..."
+for iter to max_iter {
+    # G_mu_nu = sum_lam_sig P_lam_sig [(mu nu | lam sig) - 0.5 (mu lam | nu sig)]
+    G = zeros(n_basis, n_basis)
+    for mu to n_basis {
+        for nu to n_basis {
+            g = 0.0
+            for lam to n_basis {
+                for sig to n_basis {
+                    j_int = eri[mu, nu, lam, sig]
+                    k_int = eri[mu, lam, nu, sig]
+                    g += P_dens[lam, sig] * (j_int - 0.5 * k_int)
+                }
+            }
+            G[mu, nu] = g
+        }
+    }
+    F = H_core + G
+
+    # Diagonalize in the orthonormal basis.
+    Fp = transpose(X) @ F @ X
+    eps = zeros(n_basis)
+    Cp = zeros(n_basis, n_basis)
+    eig_sym(Fp, eps, Cp)
+    C = X @ Cp
+
+    # New density (RHF, doubly-occupied lowest n_occ MOs).
+    P_new = zeros(n_basis, n_basis)
+    for mu to n_basis {
+        for nu to n_basis {
+            ss = 0.0
+            for occ to n_occ {
+                ss += C[mu, occ] * C[nu, occ]
+            }
+            P_new[mu, nu] = 2.0 * ss
+        }
+    }
+
+    # Electronic energy.
+    E_elec = 0.0
+    for mu to n_basis {
+        for nu to n_basis {
+            E_elec += 0.5 * P_new[mu, nu] * (H_core[mu, nu] + F[mu, nu])
+        }
+    }
+    E_total = E_elec + E_nuc
+
+    # Convergence on max change in density.
+    delta = 0.0
+    for mu to n_basis {
+        for nu to n_basis {
+            d = P_new[mu, nu] - P_dens[mu, nu]
+            if d < 0.0 { d = -d }
+            if d > delta { delta = d }
+        }
+    }
+    P_dens = P_new
+
+    narrate "iter / E_total / delta:"
+    show iter
+    show E_total
+    show delta
+    if delta < tol {
+        converged = 1
+        break
+    }
+}
+
+if converged == 1 {
+    narrate "SCF converged."
+} else {
+    narrate "SCF did not converge in max_iter."
+}
+narrate "Final E_total (hartree):"
+show E_total
+
+test "H2O/STO-3G total energy near textbook -74.96" {
+    # Reference HF/STO-3G energy at experimental geometry: about
+    # -74.96 hartree. Our geometry / convergence may shift by a
+    # few mhartree, so we test loosely.
+    assert_near(E_total, -74.96, 0.05)
+}
