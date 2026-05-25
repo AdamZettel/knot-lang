@@ -184,16 +184,26 @@ def primitive_norm(alpha, lmn) {
 # ------------------------------------------------------------------
 
 def os_overlap_1d(la, lb, X_PA, X_PB, p) {
-    s00 = sqrt(pi / p)
-    if la == 0 {
-        if lb == 0 { return s00 }
-        if lb == 1 { return X_PB * s00 }
+    "General Obara-Saika 1-D overlap recurrence. Builds s[i, j] up
+     from s[0, 0] = sqrt(pi/p) for i in 0..la, j in 0..lb."
+    s = zeros(la + 1, lb + 1)
+    s[0, 0] = sqrt(pi / p)
+    # Sweep i (fix j = 0).
+    for i to la {
+        prev = 0.0
+        if i > 0 { prev = i * s[i - 1, 0] }
+        s[i + 1, 0] = X_PA * s[i, 0] + prev / (2.0 * p)
     }
-    if la == 1 {
-        if lb == 0 { return X_PA * s00 }
-        if lb == 1 { return (X_PA * X_PB + 1.0 / (2.0 * p)) * s00 }
+    # Sweep j for each i.
+    for j to lb {
+        for i to la + 1 {
+            term = 0.0
+            if i > 0 { term += i * s[i - 1, j] }
+            if j > 0 { term += j * s[i, j - 1] }
+            s[i, j + 1] = X_PB * s[i, j] + term / (2.0 * p)
+        }
     }
-    panic("os_overlap_1d: l > 1 not implemented")
+    return s[la, lb]
 }
 
 def prim_overlap(alpha, A, la, beta, B, lb) {
@@ -253,6 +263,182 @@ def contracted_overlap(mu, nu) {
 # normalized) and off-diagonal entries should be < 1 in magnitude.
 # ------------------------------------------------------------------
 
+# ------------------------------------------------------------------
+# 1-D kinetic factor t^{l_a, l_b}. Comes from integrating by parts:
+#   T_1d(la, lb) = (1/2) [la*lb*s^{la-1,lb-1}
+#                       - 2 beta * la * s^{la-1,lb+1}
+#                       - 2 alpha * lb * s^{la+1,lb-1}
+#                       + 4 alpha * beta * s^{la+1,lb+1}]
+# The 3D kinetic is then
+#   T = K_AB * (t_x s_y s_z + s_x t_y s_z + s_x s_y t_z).
+# ------------------------------------------------------------------
+
+def kinetic_1d(la, lb, X_PA, X_PB, alpha, beta, p) {
+    term1 = 0.0
+    if la > 0 {
+        if lb > 0 {
+            term1 = la * lb * os_overlap_1d(la - 1, lb - 1, X_PA, X_PB, p)
+        }
+    }
+    term2 = 0.0
+    if la > 0 {
+        term2 = -2.0 * beta * la * os_overlap_1d(la - 1, lb + 1, X_PA, X_PB, p)
+    }
+    term3 = 0.0
+    if lb > 0 {
+        term3 = -2.0 * alpha * lb * os_overlap_1d(la + 1, lb - 1, X_PA, X_PB, p)
+    }
+    term4 = 4.0 * alpha * beta * os_overlap_1d(la + 1, lb + 1, X_PA, X_PB, p)
+    return 0.5 * (term1 + term2 + term3 + term4)
+}
+
+def prim_kinetic(alpha, A, la, beta, B, lb) {
+    p = alpha + beta
+    P = gauss_product_center(alpha, A, beta, B)
+    K_AB = exp(-alpha * beta / p * dist_sq(A, B))
+    sx = os_overlap_1d(la[0], lb[0], P[0] - A[0], P[0] - B[0], p)
+    sy = os_overlap_1d(la[1], lb[1], P[1] - A[1], P[1] - B[1], p)
+    sz = os_overlap_1d(la[2], lb[2], P[2] - A[2], P[2] - B[2], p)
+    tx = kinetic_1d(la[0], lb[0], P[0] - A[0], P[0] - B[0], alpha, beta, p)
+    ty = kinetic_1d(la[1], lb[1], P[1] - A[1], P[1] - B[1], alpha, beta, p)
+    tz = kinetic_1d(la[2], lb[2], P[2] - A[2], P[2] - B[2], alpha, beta, p)
+    return K_AB * (tx * sy * sz + sx * ty * sz + sx * sy * tz)
+}
+
+def contracted_kinetic(mu, nu) {
+    A = center_of(basis_atom[mu])
+    B = center_of(basis_atom[nu])
+    la = lmn_of(mu)
+    lb = lmn_of(nu)
+    total = 0.0
+    for p to n_prim {
+        for q to n_prim {
+            a = basis_alpha[mu, p]
+            b = basis_alpha[nu, q]
+            ca = basis_coef[mu, p]
+            cb = basis_coef[nu, q]
+            Na = primitive_norm(a, la)
+            Nb = primitive_norm(b, lb)
+            total += ca * cb * Na * Nb * prim_kinetic(a, A, la, b, B, lb)
+        }
+    }
+    return total
+}
+
+# ------------------------------------------------------------------
+# Nuclear attraction. Obara-Saika auxiliary V^{(la, lb; n)} where
+# n is the Boys-function order. Base case (la = lb = 0):
+#   V^{(0, 0; n)} = (2 pi / p) K_AB F_n(p |P - C|^2)
+# Recurrence (raising la on axis i):
+#   V^{(la + e_i, lb; n)}
+#     = X_PA V^{(la, lb; n)} - X_PC V^{(la, lb; n+1)}
+#     + (1/(2p)) [la_i (V^{(la - e_i, lb; n)} - V^{(la - e_i, lb; n+1)})
+#               + lb_i (V^{(la, lb - e_i; n)} - V^{(la, lb - e_i; n+1)})]
+# We use the lowering form: from V^{(la, lb; n)}, lower the first
+# nonzero component (preferring la). The recursion terminates at
+# la = lb = 0. Slow but correct for L <= 1.
+# ------------------------------------------------------------------
+
+def lmn_copy_lower(L, axis) {
+    out = zeros(3)
+    out[0] = L[0]
+    out[1] = L[1]
+    out[2] = L[2]
+    out[axis] = out[axis] - 1
+    return out
+}
+
+def first_nonzero(L) {
+    if L[0] > 0 { return 0 }
+    if L[1] > 0 { return 1 }
+    if L[2] > 0 { return 2 }
+    return -1
+}
+
+def nuc_aux(alpha, A, la, beta, B, lb, C, n) {
+    p = alpha + beta
+    P = gauss_product_center(alpha, A, beta, B)
+    a_axis = first_nonzero(la)
+    b_axis = first_nonzero(lb)
+    if a_axis == -1 {
+        if b_axis == -1 {
+            K_AB = exp(-alpha * beta / p * dist_sq(A, B))
+            T = p * dist_sq(P, C)
+            return (2.0 * pi / p) * K_AB * boys_F(n, T)
+        }
+        # Lower on b.
+        i = b_axis
+        lb_m = lmn_copy_lower(lb, i)
+        X_PB_i = P[i] - B[i]
+        X_PC_i = P[i] - C[i]
+        v_n  = nuc_aux(alpha, A, la, beta, B, lb_m, C, n)
+        v_n1 = nuc_aux(alpha, A, la, beta, B, lb_m, C, n + 1)
+        res = X_PB_i * v_n - X_PC_i * v_n1
+        if lb_m[i] > 0 {
+            lb_mm = lmn_copy_lower(lb_m, i)
+            v0 = nuc_aux(alpha, A, la, beta, B, lb_mm, C, n)
+            v1 = nuc_aux(alpha, A, la, beta, B, lb_mm, C, n + 1)
+            res += lb_m[i] / (2.0 * p) * (v0 - v1)
+        }
+        if la[i] > 0 {
+            la_m = lmn_copy_lower(la, i)
+            v0 = nuc_aux(alpha, A, la_m, beta, B, lb_m, C, n)
+            v1 = nuc_aux(alpha, A, la_m, beta, B, lb_m, C, n + 1)
+            res += la[i] / (2.0 * p) * (v0 - v1)
+        }
+        return res
+    }
+    # Lower on a (preferred).
+    i = a_axis
+    la_m = lmn_copy_lower(la, i)
+    X_PA_i = P[i] - A[i]
+    X_PC_i = P[i] - C[i]
+    v_n  = nuc_aux(alpha, A, la_m, beta, B, lb, C, n)
+    v_n1 = nuc_aux(alpha, A, la_m, beta, B, lb, C, n + 1)
+    res = X_PA_i * v_n - X_PC_i * v_n1
+    if la_m[i] > 0 {
+        la_mm = lmn_copy_lower(la_m, i)
+        v0 = nuc_aux(alpha, A, la_mm, beta, B, lb, C, n)
+        v1 = nuc_aux(alpha, A, la_mm, beta, B, lb, C, n + 1)
+        res += la_m[i] / (2.0 * p) * (v0 - v1)
+    }
+    if lb[i] > 0 {
+        lb_m = lmn_copy_lower(lb, i)
+        v0 = nuc_aux(alpha, A, la_m, beta, B, lb_m, C, n)
+        v1 = nuc_aux(alpha, A, la_m, beta, B, lb_m, C, n + 1)
+        res += lb[i] / (2.0 * p) * (v0 - v1)
+    }
+    return res
+}
+
+def prim_nuclear(alpha, A, la, beta, B, lb, C, Zc) {
+    return -Zc * nuc_aux(alpha, A, la, beta, B, lb, C, 0)
+}
+
+def contracted_nuclear(mu, nu, C, Zc) {
+    A = center_of(basis_atom[mu])
+    B = center_of(basis_atom[nu])
+    la = lmn_of(mu)
+    lb = lmn_of(nu)
+    total = 0.0
+    for p to n_prim {
+        for q to n_prim {
+            a = basis_alpha[mu, p]
+            b = basis_alpha[nu, q]
+            ca = basis_coef[mu, p]
+            cb = basis_coef[nu, q]
+            Na = primitive_norm(a, la)
+            Nb = primitive_norm(b, lb)
+            total += ca * cb * Na * Nb * prim_nuclear(a, A, la, b, B, lb, C, Zc)
+        }
+    }
+    return total
+}
+
+# ------------------------------------------------------------------
+# Build the one-electron matrices.
+# ------------------------------------------------------------------
+
 narrate "Building overlap matrix S..."
 
 S = zeros(n_basis, n_basis)
@@ -263,13 +449,33 @@ for mu to n_basis {
 }
 show S
 
-# Diagonal check.
-for i to n_basis {
-    diff = S[i, i] - 1.0
-    if diff < 0.0 { diff = -diff }
-    if diff > 1.0e-4 {
-        print(format("WARNING: S[%d,%d] = %.6f -- contracted basis function not normalized?", i, i, S[i, i]))
+narrate "Building kinetic matrix T..."
+
+T = zeros(n_basis, n_basis)
+for mu to n_basis {
+    for nu to n_basis {
+        T[mu, nu] = contracted_kinetic(mu, nu)
     }
 }
+show T
 
-narrate "Overlap diagonal checked. Kinetic, nuclear attraction, and ERI come next."
+narrate "Building nuclear-attraction matrix V (sum over atoms)..."
+
+V = zeros(n_basis, n_basis)
+for mu to n_basis {
+    for nu to n_basis {
+        v_total = 0.0
+        for atom to n_atoms {
+            Rc = center_of(atom)
+            v_total += contracted_nuclear(mu, nu, Rc, Z[atom])
+        }
+        V[mu, nu] = v_total
+    }
+}
+show V
+
+H_core = T + V
+narrate "Core Hamiltonian (T + V):"
+show H_core
+
+narrate "One-electron part done. ERI comes next."
