@@ -327,6 +327,29 @@ GOT=$(./knot /tmp/_append_test.knot 2>&1)
 check "append (interp)" "3 1 two [10, 20]" "$GOT"
 rm -f /tmp/_append_test.knot
 
+echo "== wasm backend foundation =="
+
+# `--wasm-test` writes a fixed module that exports `main` returning 42.
+# This is the smallest end-to-end verification of the WASM binary
+# writer: knot emits the bytes, Node's built-in WebAssembly engine
+# (matching what the browser uses) parses and runs them, and we check
+# main() returns 42.
+if command -v node >/dev/null 2>&1; then
+    rm -f /tmp/_wasm_test.wasm
+    ./knot --wasm-test /tmp/_wasm_test.wasm >/dev/null 2>&1
+    GOT=$(node -e "
+        const fs = require('fs');
+        const buf = fs.readFileSync('/tmp/_wasm_test.wasm');
+        WebAssembly.instantiate(buf).then(({instance}) => {
+            console.log(instance.exports.main());
+        });
+    " 2>&1)
+    check "wasm-test module: main() returns 42" "42" "$GOT"
+    rm -f /tmp/_wasm_test.wasm
+else
+    echo "  SKIP  wasm-test (no node binary on PATH)"
+fi
+
 echo "== playground html =="
 
 # Extract the inline <script>...</script> block from web/index.html

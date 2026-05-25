@@ -8,6 +8,7 @@
 #include "render.hpp"
 #include "replay.hpp"
 #include "stdlib_embedded.hpp"
+#include "wasm_codegen.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -706,7 +707,7 @@ int main(int argc, char** argv) {
     //   knot --show FILE         -> print source with annotations inlined
     //   knot --cc FILE           -> transpile to C; print to stdout
     //   knot --exec FILE         -> transpile, compile with cc, run binary
-    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay, Test, Fuzz } mode = Mode::Run;
+    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay, Test, Fuzz, WasmTest } mode = Mode::Run;
     const char* filename = nullptr;
     bool trap_nan = false;
     std::string trace_path;
@@ -723,6 +724,7 @@ int main(int argc, char** argv) {
         else if (arg == "--callgraph") mode = Mode::Callgraph;
         else if (arg == "--replay")    mode = Mode::Replay;
         else if (arg == "--test")      mode = Mode::Test;
+        else if (arg == "--wasm-test") mode = Mode::WasmTest;
         else if (arg == "--trap-nan") trap_nan = true;
         else if (arg == "--no-hints")  phrase_hints_enabled() = false;
         else if (arg == "--no-narrate") narration_enabled() = false;
@@ -789,6 +791,20 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+    if (mode == Mode::WasmTest) {
+        // Emit a stub WASM module to FILENAME for end-to-end testing
+        // of the binary writer + browser loader. The module exports
+        // `main` of type () -> f64 returning 42.0; instantiated in JS
+        // it should produce 42.
+        WasmCodegen cg;
+        std::vector<uint8_t> bytes = cg.compile_test();
+        std::ofstream out(filename, std::ios::binary);
+        if (!out) { std::cerr << "cannot open " << filename << " for writing\n"; return 1; }
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  (std::streamsize)bytes.size());
+        std::cerr << "wrote " << bytes.size() << " bytes to " << filename << "\n";
+        return 0;
+    }
 
     std::ifstream f(filename);
     if (!f) { std::cerr << "cannot open " << filename << "\n"; return 1; }
@@ -799,6 +815,7 @@ int main(int argc, char** argv) {
         case Mode::Hashes:   return dump_hashes(filename, src);
         case Mode::Scaffold: return scaffold(filename, src);
         case Mode::Show:     return show(filename, src);
+        case Mode::WasmTest: return 0; // handled above
         case Mode::Step: {
             Annotations annots = load_annotations(std::string(filename) + ".annot");
             if (annots.empty()) {
