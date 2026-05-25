@@ -629,14 +629,28 @@ private:
             fail(e.span, "zeros: bad args");
         }
         if (name == "ones") {
-            // Build via fill loop. We inline a helper-style expression:
-            // a ({ ... }) statement-expression block (GCC extension).
             if (args.size() == 1 && args[0].type == CType::Num) {
                 std::string code = "({ knot_vec _r = knot_vec_new((int)(" + args[0].code
                     + ")); for (int _i = 0; _i < _r.n; ++_i) _r.data[_i] = 1.0; _r; })";
                 return {code, CType::Vec};
             }
-            fail(e.span, "ones(n) only in --cc v1");
+            if (args.size() == 2 && args[0].type == CType::Num && args[1].type == CType::Num) {
+                std::string code = "({ knot_mat _r = knot_mat_new((int)(" + args[0].code
+                    + "), (int)(" + args[1].code + "));"
+                    + " for (int _i = 0; _i < _r.rows * _r.cols; ++_i) _r.data[_i] = 1.0; _r; })";
+                return {code, CType::Mat};
+            }
+            fail(e.span, "ones: bad args");
+        }
+        if (name == "eye") {
+            if (args.size() == 1 && args[0].type == CType::Num) {
+                std::string code = "({ int _n = (int)(" + args[0].code
+                    + "); knot_mat _r = knot_mat_new(_n, _n);"
+                    + " for (int _i = 0; _i < _n; ++_i) knot_mat_set(_r, _i, _i, 1.0);"
+                    + " _r; })";
+                return {code, CType::Mat};
+            }
+            fail(e.span, "eye(n)");
         }
         if (name == "dot") {
             if (args.size() == 2 && args[0].type == CType::Vec && args[1].type == CType::Vec)

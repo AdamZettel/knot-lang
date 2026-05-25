@@ -395,6 +395,122 @@ def power_iter(M, v_out, iters=200, tol=1e-12) {
     return lam
 }
 
+def eig_sym(A, vals_out, vecs_out, tol=1.0e-12, max_sweeps=100) {
+    "Symmetric eigendecomposition by cyclic Jacobi rotations.
+
+     Fills vals_out (a length-n vec) with eigenvalues in ascending order
+     and vecs_out (an n x n mat) with the corresponding eigenvectors as
+     columns. A must be real symmetric. Converges quadratically once the
+     off-diagonal magnitude is small; reliable for any well-conditioned
+     symmetric matrix.
+
+     Out-parameters because knot's --exec mode can't pack the
+     eigenvalues and eigenvectors into a single returned value -- see
+     CODEGEN_GAPS.md (heterogeneous list returns)."
+    n = rows(A)
+    # Working matrix M starts as a copy of A.
+    M = copy_mat(A)
+    # V starts as identity; accumulates the product of Jacobi rotations.
+    V = eye(n)
+
+    for sweep to max_sweeps {
+        # Find the largest off-diagonal element (in absolute value).
+        max_off = 0.0
+        p = 0
+        q = 1
+        for i to n {
+            for j to n {
+                if j > i {
+                    a_ij = M[i, j]
+                    if a_ij < 0.0 { a_ij = -a_ij }
+                    if a_ij > max_off {
+                        max_off = a_ij
+                        p = i
+                        q = j
+                    }
+                }
+            }
+        }
+        if max_off < tol { break }
+
+        # Choose the rotation angle that zeros M[p, q]:
+        #   tan(2*theta) = 2*M[p,q] / (M[p,p] - M[q,q])
+        a_pp = M[p, p]
+        a_qq = M[q, q]
+        a_pq = M[p, q]
+        theta = 0.5 * atan2(2.0 * a_pq, a_pp - a_qq)
+        c = cos(theta)
+        s = sin(theta)
+
+        # Update rows/cols p and q of M. For k not in {p, q} the column
+        # entries change; the (p, q) block updates analytically.
+        for k to n {
+            if k != p {
+                if k != q {
+                    m_kp = M[k, p]
+                    m_kq = M[k, q]
+                    new_kp = c * m_kp + s * m_kq
+                    new_kq = -s * m_kp + c * m_kq
+                    M[k, p] = new_kp
+                    M[p, k] = new_kp
+                    M[k, q] = new_kq
+                    M[q, k] = new_kq
+                }
+            }
+        }
+        new_pp = c * c * a_pp + 2.0 * c * s * a_pq + s * s * a_qq
+        new_qq = s * s * a_pp - 2.0 * c * s * a_pq + c * c * a_qq
+        M[p, p] = new_pp
+        M[q, q] = new_qq
+        M[p, q] = 0.0
+        M[q, p] = 0.0
+
+        # Accumulate the rotation into V (V' = V * R).
+        for k to n {
+            v_kp = V[k, p]
+            v_kq = V[k, q]
+            V[k, p] = c * v_kp + s * v_kq
+            V[k, q] = -s * v_kp + c * v_kq
+        }
+    }
+
+    # Read off eigenvalues from the diagonal.
+    for i to n {
+        vals_out[i] = M[i, i]
+    }
+    # Sort eigenvalues ascending; permute V's columns to match. Simple
+    # selection sort on n -- O(n^2) is fine for moderate n.
+    for i to n {
+        idx = i
+        best = vals_out[i]
+        j = i + 1
+        while j < n {
+            if vals_out[j] < best {
+                best = vals_out[j]
+                idx = j
+            }
+            j += 1
+        }
+        if idx != i {
+            tmp = vals_out[i]
+            vals_out[i] = vals_out[idx]
+            vals_out[idx] = tmp
+            for r to n {
+                tmp_v = V[r, i]
+                V[r, i] = V[r, idx]
+                V[r, idx] = tmp_v
+            }
+        }
+    }
+    # Copy V into the caller's vecs_out.
+    for i to n {
+        for j to n {
+            vecs_out[i, j] = V[i, j]
+        }
+    }
+    return 0
+}
+
 # ===================================================================
 # Root finding
 # ===================================================================
