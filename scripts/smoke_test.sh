@@ -346,6 +346,48 @@ if command -v node >/dev/null 2>&1; then
     " 2>&1)
     check "wasm-test module: main() returns 42" "42" "$GOT"
     rm -f /tmp/_wasm_test.wasm
+
+    # Numerical-core programs that exercise constants, arithmetic,
+    # locals, if/else, and while loops. Each runs through both --interp
+    # and the new --wasm path and we verify byte-identical stdout.
+    wasm_check() {
+        local label="$1"
+        local src="$2"
+        local expected="$3"
+        local prog=/tmp/_wasm_smoke.knot
+        echo "$src" > $prog
+        ./knot --wasm $prog >/dev/null 2>/dev/null
+        GOT=$(node -e "
+            const fs = require('fs');
+            const out = [];
+            WebAssembly.instantiate(fs.readFileSync('/tmp/_wasm_smoke.wasm'), {
+                env: { knot_print_num: (x) => out.push(x) }
+            }).then(({instance}) => {
+                instance.exports.main();
+                console.log(out.join('\n'));
+            });
+        " 2>&1)
+        check "wasm: $label" "$expected" "$GOT"
+        rm -f $prog /tmp/_wasm_smoke.wasm
+    }
+
+    wasm_check "constant + arithmetic" "print(2.0 + 3.0)" "5"
+    wasm_check "locals + while" \
+"x = 0.0
+i = 1.0
+while i <= 10.0 {
+    x = x + i
+    i = i + 1.0
+}
+print(x)" "55"
+    wasm_check "if/else" \
+"x = 7.0
+if x > 5.0 { print(1.0) } else { print(0.0) }" "1"
+    wasm_check "compound assign" \
+"x = 0.0
+x += 1.5
+x *= 2.0
+print(x)" "3"
 else
     echo "  SKIP  wasm-test (no node binary on PATH)"
 fi

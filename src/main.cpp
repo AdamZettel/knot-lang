@@ -707,7 +707,7 @@ int main(int argc, char** argv) {
     //   knot --show FILE         -> print source with annotations inlined
     //   knot --cc FILE           -> transpile to C; print to stdout
     //   knot --exec FILE         -> transpile, compile with cc, run binary
-    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay, Test, Fuzz, WasmTest } mode = Mode::Run;
+    enum class Mode { Run, Step, Hashes, Scaffold, Show, CC, Exec, Callgraph, Replay, Test, Fuzz, WasmTest, Wasm } mode = Mode::Run;
     const char* filename = nullptr;
     bool trap_nan = false;
     std::string trace_path;
@@ -725,6 +725,7 @@ int main(int argc, char** argv) {
         else if (arg == "--replay")    mode = Mode::Replay;
         else if (arg == "--test")      mode = Mode::Test;
         else if (arg == "--wasm-test") mode = Mode::WasmTest;
+        else if (arg == "--wasm")      mode = Mode::Wasm;
         else if (arg == "--trap-nan") trap_nan = true;
         else if (arg == "--no-hints")  phrase_hints_enabled() = false;
         else if (arg == "--no-narrate") narration_enabled() = false;
@@ -816,6 +817,36 @@ int main(int argc, char** argv) {
         case Mode::Scaffold: return scaffold(filename, src);
         case Mode::Show:     return show(filename, src);
         case Mode::WasmTest: return 0; // handled above
+        case Mode::Wasm: {
+            // Compile the source via the WASM backend and write the
+            // module bytes to FILE.wasm (where FILE is the input name
+            // with its .knot extension stripped). Errors come out as
+            // a Diag with caret context, same shape as --cc.
+            try {
+                Lexer lex(src);
+                auto toks = lex.tokenize();
+                Parser p(toks, src);
+                auto program = p.parse_program();
+                WasmCodegen cg;
+                auto bytes = cg.compile(program, filename);
+                std::string out_path = filename;
+                size_t dot = out_path.rfind('.');
+                if (dot != std::string::npos) out_path = out_path.substr(0, dot);
+                out_path += ".wasm";
+                std::ofstream out(out_path, std::ios::binary);
+                if (!out) {
+                    std::cerr << "cannot open " << out_path << " for writing\n";
+                    return 1;
+                }
+                out.write(reinterpret_cast<const char*>(bytes.data()),
+                          (std::streamsize)bytes.size());
+                std::cerr << "wrote " << bytes.size() << " bytes to " << out_path << "\n";
+            } catch (const Diag& d) {
+                render_diag(filename, src, d);
+                return 1;
+            }
+            return 0;
+        }
         case Mode::Step: {
             Annotations annots = load_annotations(std::string(filename) + ".annot");
             if (annots.empty()) {
