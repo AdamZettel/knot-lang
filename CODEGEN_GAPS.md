@@ -17,34 +17,6 @@ Entries are ordered by **priority**:
 
 ## high
 
-### Top-level constants invisible inside function bodies
-
-**Surfaced by:** `examples/electronic_structure/00_h2_sto3g.knot`, which
-defines basis constants (`alpha_h`, `d_h`, `n_prim`) and geometry
-(`centers`, `Z`, `n_basis`) at top-level and references them from inside
-several helper functions.
-
-**What happens:**
-
-    error: use of undeclared identifier 'n_prim'
-
-The transpiler emits top-level statements into `main()`, so function
-bodies (which are file-scope C functions) can't see those locals. The
-interpreter handles this fine: top-level assignments live in `globals`
-and functions resolve up the scope chain.
-
-**Workaround:** pass the constants as parameters, or redeclare them
-inside each function that needs them (clunky but works).
-
-**Fix sketch:** at codegen time, identify "top-level constants" (single
-assignment, never reassigned, no compound-assign) and emit them as
-file-scope `static` declarations in C. For scalar nums this is trivial
-(`static double pi = 3.14...`); for vec/mat literals it needs a
-one-time initializer that runs before `main`. Either an `__attribute__((constructor))`
-init function or move the literal construction into `main()` and the
-function bodies receive them via a generated `init_globals()` call.
-~150 LOC.
-
 ### Heterogeneous list types
 
 **Surfaced by:** any code that returns multiple values from a function
