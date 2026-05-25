@@ -735,6 +735,15 @@ tol = 1.0e-7
 max_iter = 80
 converged = 0
 
+# Record the SCF trajectory for the web viewer: per-iteration index,
+# total energy, and max-density-change delta. Two traces of the same
+# length share an x axis. zeros(max_iter+1) gives extra headroom for
+# the iter-0 reference (P = 0) we want to display.
+iters_seen = 0
+iter_xs = zeros(max_iter)
+e_history = zeros(max_iter)
+delta_history = zeros(max_iter)
+
 narrate "Entering SCF..."
 for iter to max_iter {
     # G_mu_nu = sum_lam_sig P_lam_sig [(mu nu | lam sig) - 0.5 (mu lam | nu sig)]
@@ -793,6 +802,11 @@ for iter to max_iter {
     }
     P_dens = P_new
 
+    iter_xs[iters_seen] = iter
+    e_history[iters_seen] = E_total
+    delta_history[iters_seen] = delta
+    iters_seen += 1
+
     narrate "iter / E_total / delta:"
     show iter
     show E_total
@@ -810,6 +824,20 @@ if converged == 1 {
 }
 narrate "Final E_total (hartree):"
 show E_total
+
+# Save the SCF trajectory for the web viewer. Trim the trailing
+# zeros down to the iters_seen entries that actually ran.
+iter_trim = zeros(iters_seen)
+e_trim = zeros(iters_seen)
+delta_trim = zeros(iters_seen)
+for k to iters_seen {
+    iter_trim[k] = iter_xs[k]
+    e_trim[k] = e_history[k]
+    delta_trim[k] = delta_history[k]
+}
+plot_save("h2o_energy.json", iter_trim, e_trim, "E_total (hartree)")
+plot_save("h2o_delta.json", iter_trim, delta_trim, "max density change")
+narrate "Wrote h2o_energy.json and h2o_delta.json. Drag into web/viewer.html."
 
 test "H2O/STO-3G total energy near textbook -74.96" {
     # Reference HF/STO-3G energy at experimental geometry: about

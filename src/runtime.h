@@ -281,6 +281,75 @@ static inline int knot_tensor_dim(knot_tensor t, int axis) {
     return t.dims[axis];
 }
 
+// ---- plot_save (JSON for web/viewer.html) -------------------------------
+// Writes a {"traces": [...]} JSON document. The interpreter has the
+// same format in b_plot_save; emit_call dispatches knot programs to
+// these helpers in --exec.
+
+static inline void knot_json_double(FILE* f, double x) {
+    // Match the interpreter's json_double: finite -> %.17g, non-finite -> 0.
+    if (x != x || x - x != 0) { fputc('0', f); return; }
+    fprintf(f, "%.17g", x);
+}
+
+static inline void knot_plot_save_v(const char* path, knot_vec x, knot_vec y,
+                                    const char* name) {
+    if (x.n != y.n) {
+        fprintf(stderr, "plot_save: x and y must have the same length\n");
+        exit(1);
+    }
+    FILE* f = fopen(path, "w");
+    if (!f) {
+        fprintf(stderr, "plot_save: cannot open %s for writing\n", path);
+        exit(1);
+    }
+    fprintf(f, "{\"traces\":[{\"name\":\"%s\",\"kind\":\"line\",\"x\":[",
+            name ? name : "trace");
+    for (int i = 0; i < x.n; ++i) {
+        if (i) fputc(',', f);
+        knot_json_double(f, x.data[i]);
+    }
+    fputs("],\"y\":[", f);
+    for (int i = 0; i < y.n; ++i) {
+        if (i) fputc(',', f);
+        knot_json_double(f, y.data[i]);
+    }
+    fputs("]}]}\n", f);
+    fclose(f);
+}
+
+static inline void knot_plot_save_m(const char* path, knot_vec x, knot_mat Y,
+                                    const char* name) {
+    if (Y.rows != x.n) {
+        fprintf(stderr, "plot_save: matrix row count must match x length\n");
+        exit(1);
+    }
+    FILE* f = fopen(path, "w");
+    if (!f) {
+        fprintf(stderr, "plot_save: cannot open %s for writing\n", path);
+        exit(1);
+    }
+    fputs("{\"traces\":[", f);
+    for (int j = 0; j < Y.cols; ++j) {
+        if (j) fputc(',', f);
+        if (name) fprintf(f, "{\"name\":\"%s %d\"", name, j);
+        else      fprintf(f, "{\"name\":\"col_%d\"", j);
+        fputs(",\"kind\":\"line\",\"x\":[", f);
+        for (int i = 0; i < x.n; ++i) {
+            if (i) fputc(',', f);
+            knot_json_double(f, x.data[i]);
+        }
+        fputs("],\"y\":[", f);
+        for (int i = 0; i < Y.rows; ++i) {
+            if (i) fputc(',', f);
+            knot_json_double(f, Y.data[i + (size_t)j * Y.rows]);
+        }
+        fputs("]}", f);
+    }
+    fputs("]}\n", f);
+    fclose(f);
+}
+
 // ---- Closures -----------------------------------------------------------
 // Numerical callbacks (the arg to simpson, bisect, rk4, etc.) are passed
 // as fat pointers: a function pointer plus a void* env. Bare top-level

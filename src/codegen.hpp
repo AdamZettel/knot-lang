@@ -645,6 +645,29 @@ private:
             }
             fail(e.span, "zeros: bad args");
         }
+        if (name == "plot_save") {
+            // plot_save(path, x, y [, name]) or plot_save(path, x, Y [, name])
+            if (args.size() < 3 || args.size() > 4)
+                fail(e.span, "plot_save(path, x, y[, name]) or plot_save(path, x, Y[, name])");
+            if (args[0].type != CType::Str)
+                fail(e.span, "plot_save: path must be a string literal");
+            if (args[1].type != CType::Vec)
+                fail(e.span, "plot_save: x must be a vec");
+            std::string nm = (args.size() == 4) ? args[3].code : "NULL";
+            if (args.size() == 4 && args[3].type != CType::Str)
+                fail(e.span, "plot_save: name must be a string");
+            if (args[2].type == CType::Vec) {
+                std::string code = "(knot_plot_save_v(" + args[0].code + ", "
+                    + args[1].code + ", " + args[2].code + ", " + nm + "), 0.0)";
+                return {code, CType::Num};
+            }
+            if (args[2].type == CType::Mat) {
+                std::string code = "(knot_plot_save_m(" + args[0].code + ", "
+                    + args[1].code + ", " + args[2].code + ", " + nm + "), 0.0)";
+                return {code, CType::Num};
+            }
+            fail(e.span, "plot_save: third arg must be a vec or a mat");
+        }
         if (name == "panic") {
             if (args.size() != 1 || args[0].type != CType::Str)
                 fail(e.span, "panic(str)");

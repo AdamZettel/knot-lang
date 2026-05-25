@@ -117,24 +117,22 @@ hard part is allocating the result string. Could keep a
 process-static buffer in the runtime for v1 (single-use; not
 reentrant). ~70 LOC.
 
-### `plot(x, y[, name])` and `plot_save(path, x, y_or_Y[, name])` builtins
+### `plot(x, y[, name])` builtin
 
 **Surfaced by:** the playground's plot examples when run under
-`--exec`; `examples/plotting_demo.knot` under `--exec`.
+`--exec`.
 
 **What happens:**
 
     error: codegen: unknown function: plot
-    error: codegen: unknown function: plot_save
 
-**Workaround:** plotting is a `--interp` feature today (browser
-playground for `plot()`, JSON-file + `web/viewer.html` for
-`plot_save()`). Run plotting programs through `--interp`.
+**Workaround:** stdout-marker `plot()` is interpreter-only; under
+`--exec` use `plot_save()` instead, which writes a JSON file the
+standalone `web/viewer.html` opens.
 
-**Fix sketch:** add `knot_plot_v`, `knot_plot_m`, `knot_plot_save_v`,
-`knot_plot_save_m` runtime helpers that emit the same `__knot_plot__`
-stdout line / JSON file the interpreter does. Once `--exec` knows how
-to call them, both builtins work the same in both backends. ~80 LOC.
+**Fix sketch:** add `knot_plot_v` / `knot_plot_m` runtime helpers
+following the same shape as the now-shipped `knot_plot_save_*`
+pair. ~40 LOC.
 
 ### `sin(vec)` / `cos(vec)` / etc. broadcasting
 
