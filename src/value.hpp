@@ -58,6 +58,7 @@ struct Value {
         std::string,                     // Str
         std::shared_ptr<Vec>,            // Vec (numerical column vector)
         std::shared_ptr<Mat>,            // Mat (column-major matrix)
+        std::shared_ptr<Tensor>,         // Tensor (N-D, row-major, rank > 2)
         std::shared_ptr<ValueList>,      // List (heterogeneous, for return tuples)
         std::shared_ptr<Function>,       // user-defined function
         Builtin                          // builtin function
@@ -110,6 +111,11 @@ struct Value {
         r.v = std::move(sp);
         return r;
     }
+    static Value tensor(Tensor t) {
+        Value r;
+        r.v = std::make_shared<Tensor>(std::move(t));
+        return r;
+    }
     static Value fn(std::shared_ptr<Function> f){ Value r; r.v = std::move(f); return r; }
     static Value builtin(Builtin b)             { Value r; r.v = std::move(b); return r; }
     static Value list(ValueList x) {
@@ -123,6 +129,7 @@ struct Value {
     bool is_str()    const { return std::holds_alternative<std::string>(v); }
     bool is_vec()    const { return std::holds_alternative<std::shared_ptr<Vec>>(v); }
     bool is_mat()    const { return std::holds_alternative<std::shared_ptr<Mat>>(v); }
+    bool is_tensor() const { return std::holds_alternative<std::shared_ptr<Tensor>>(v); }
     bool is_list()   const { return std::holds_alternative<std::shared_ptr<ValueList>>(v); }
     bool is_fn()     const { return std::holds_alternative<std::shared_ptr<Function>>(v); }
     bool is_builtin()const { return std::holds_alternative<Builtin>(v); }
@@ -133,6 +140,7 @@ struct Value {
     const std::string& as_str() const { return std::get<std::string>(v); }
     const Vec&      as_vec()  const { return *std::get<std::shared_ptr<Vec>>(v); }
     const Mat&      as_mat()  const { return *std::get<std::shared_ptr<Mat>>(v); }
+    const Tensor&   as_tensor() const { return *std::get<std::shared_ptr<Tensor>>(v); }
     const ValueList& as_list() const { return *std::get<std::shared_ptr<ValueList>>(v); }
     const Function& as_fn()   const { return *std::get<std::shared_ptr<Function>>(v); }
     const Builtin&  as_builtin() const { return std::get<Builtin>(v); }
@@ -144,6 +152,7 @@ struct Value {
         if (is_str())     return "str";
         if (is_vec())     return "vec";
         if (is_mat())     return "mat";
+        if (is_tensor())  return "tensor";
         if (is_list())    return "list";
         if (is_fn())      return "fn";
         if (is_builtin()) return "builtin";

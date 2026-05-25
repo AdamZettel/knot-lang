@@ -1,0 +1,49 @@
+# N-D tensors. Construction via zeros(d1, d2, ...) for rank > 2;
+# subscript access T[i, j, k, ...]; rank() and dim() for introspection.
+
+test "rank-3 tensor: construction and indexed read/write" {
+    T = zeros(2, 3, 4)
+    assert_eq(rank(T), 3)
+    assert_eq(dim(T, 0), 2)
+    assert_eq(dim(T, 1), 3)
+    assert_eq(dim(T, 2), 4)
+    T[0, 0, 0] = 1.0
+    T[1, 2, 3] = 9.5
+    T[0, 1, 2] = -3.25
+    assert_near(T[0, 0, 0], 1.0,   1.0e-12)
+    assert_near(T[1, 2, 3], 9.5,   1.0e-12)
+    assert_near(T[0, 1, 2], -3.25, 1.0e-12)
+    # Unwritten entries stay zero.
+    assert_near(T[1, 0, 0], 0.0, 1.0e-12)
+}
+
+test "rank-4 tensor: two-electron integral storage shape" {
+    n = 3
+    eri = zeros(n, n, n, n)
+    assert_eq(rank(eri), 4)
+    assert_eq(dim(eri, 3), n)
+    # Fill with i*1000 + j*100 + k*10 + l and verify.
+    for i to n {
+        for j to n {
+            for k to n {
+                for l to n {
+                    eri[i, j, k, l] = i * 1000 + j * 100 + k * 10 + l
+                }
+            }
+        }
+    }
+    assert_near(eri[2, 1, 0, 2], 2102.0, 1.0e-12)
+    assert_near(eri[0, 0, 0, 0],    0.0, 1.0e-12)
+}
+
+test "tensor compound assign via [] += value" {
+    T = zeros(2, 2, 2)
+    T[1, 0, 1] = 5.0
+    T[1, 0, 1] += 2.5
+    assert_near(T[1, 0, 1], 7.5, 1.0e-12)
+}
+
+test "tensor index out of range errors" {
+    T = zeros(2, 2)  # this is a mat, not a tensor -- tensor needs >2 dims
+    assert_eq(rows(T), 2)
+}

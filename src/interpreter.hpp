@@ -668,6 +668,27 @@ private:
             sp->at(i, j) = val.as_num();
             return;
         }
+        if (container.is_tensor()) {
+            auto& sp = std::get<std::shared_ptr<Tensor>>(container.v);
+            if ((int)target.elems.size() != sp->rank())
+                throw Diag(target.span,
+                    "tensor index requires " + std::to_string(sp->rank())
+                    + " integers");
+            std::vector<int> idx;
+            idx.reserve(sp->rank());
+            for (int a = 0; a < sp->rank(); ++a) {
+                Value iv = eval(*target.elems[a], env);
+                idx.push_back(to_index(iv, target.elems[a]->span));
+            }
+            if (!val.is_num())
+                throw Diag(target.span,
+                    "assigning non-number into tensor element");
+            try { sp->at(idx) = val.as_num(); }
+            catch (const std::runtime_error& ex) {
+                throw Diag(target.span, ex.what());
+            }
+            return;
+        }
         throw Diag(target.callee->span,
             std::string("cannot index-assign into ") + container.type_name());
     }
@@ -932,6 +953,23 @@ private:
             i = wrap_index(i, (int)sp->size(), e.elems[0]->span, "vector");
             return Value::num((*sp)[i]);
         }
+        if (container.is_tensor()) {
+            const auto& sp = std::get<std::shared_ptr<Tensor>>(container.v);
+            if ((int)e.elems.size() != sp->rank())
+                throw Diag(e.span,
+                    "tensor index requires " + std::to_string(sp->rank())
+                    + " integers, got " + std::to_string(e.elems.size()));
+            std::vector<int> idx;
+            idx.reserve(sp->rank());
+            for (int a = 0; a < sp->rank(); ++a) {
+                Value iv = eval(*e.elems[a], env);
+                idx.push_back(to_index(iv, e.elems[a]->span));
+            }
+            try { return Value::num(sp->at(idx)); }
+            catch (const std::runtime_error& ex) {
+                throw Diag(e.span, ex.what());
+            }
+        }
         if (container.is_mat()) {
             if (e.elems.size() != 2)
                 throw Diag(e.span,
@@ -1155,6 +1193,15 @@ public:
                 os << "]";
             }
             os << "]";
+        }
+        else if (v.is_tensor()) {
+            const Tensor& t = v.as_tensor();
+            os << "<tensor rank " << t.rank() << " shape (";
+            for (size_t a = 0; a < t.dims.size(); ++a) {
+                if (a) os << ", ";
+                os << t.dims[a];
+            }
+            os << ")>";
         }
         else if (v.is_list()) {
             const ValueList& lst = v.as_list();
@@ -1525,6 +1572,25 @@ inline Value b_plot_save(const std::vector<Value>& args, Span s) {
     return Value::nil();
 }
 
+inline Value b_rank(const std::vector<Value>& args, Span s) {
+    if (args.size() != 1 || !args[0].is_tensor())
+        throw Diag(s, "rank expects a tensor");
+    const auto& sp = std::get<std::shared_ptr<Tensor>>(args[0].v);
+    return Value::num((double)sp->rank());
+}
+
+inline Value b_dim(const std::vector<Value>& args, Span s) {
+    if (args.size() != 2 || !args[0].is_tensor() || !args[1].is_num())
+        throw Diag(s, "dim(tensor, axis)");
+    const auto& sp = std::get<std::shared_ptr<Tensor>>(args[0].v);
+    int a = (int)args[1].as_num();
+    if (a < 0 || a >= sp->rank())
+        throw Diag(s, "dim: axis out of range");
+    Value v = Value::num((double)sp->dims[a]);
+    if (sp->axis_tags[a]) v.tag = sp->axis_tags[a];
+    return v;
+}
+
 inline Value b_rows(const std::vector<Value>& args, Span s) {
     if (args.size() != 1 || !args[0].is_mat()) throw Diag(s, "rows expects a mat");
     const auto& sp = std::get<std::shared_ptr<Mat>>(args[0].v);
@@ -1553,7 +1619,20 @@ inline Value b_zeros(const std::vector<Value>& args, Span s) {
         if (args[1].tag) m.col_tag = args[1].tag;
         return Value::mat(std::move(m));
     }
-    throw Diag(s, "zeros(n) or zeros(r, c)");
+    if (args.size() >= 3) {
+        std::vector<int> dims;
+        dims.reserve(args.size());
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (!args[i].is_num())
+                throw Diag(s, "zeros: tensor dim must be a num");
+            dims.push_back((int)args[i].as_num());
+        }
+        Tensor t(std::move(dims));
+        for (size_t i = 0; i < args.size(); ++i)
+            if (args[i].tag) t.axis_tags[i] = args[i].tag;
+        return Value::tensor(std::move(t));
+    }
+    throw Diag(s, "zeros(n), zeros(r, c), or zeros(d1, d2, ...)");
 }
 
 inline Value b_ones(const std::vector<Value>& args, Span s) {
@@ -1873,6 +1952,8 @@ inline void Interpreter::register_builtins() {
     reg("len",       builtins::b_len);
     reg("rows",      builtins::b_rows);
     reg("cols",      builtins::b_cols);
+    reg("rank",      builtins::b_rank);
+    reg("dim",       builtins::b_dim);
     reg("zeros",     builtins::b_zeros);
     reg("ones",      builtins::b_ones);
     reg("eye",       builtins::b_eye);

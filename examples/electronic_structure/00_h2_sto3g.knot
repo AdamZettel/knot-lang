@@ -236,23 +236,17 @@ show V
 show H_core
 
 # ------------------------------------------------------------------
-# Build the (mu nu | lam sig) tensor. With n_basis = 2 we have
-# 2^4 = 16 entries; we store them as a vec of length 16 indexed by
-# i = mu*8 + nu*4 + lam*2 + sig. A real codebase wants a 4D tensor.
+# Build the 4D (mu nu | lam sig) two-electron integral tensor.
 # ------------------------------------------------------------------
 
 narrate "Building two-electron integrals..."
 
-n4 = n_basis * n_basis * n_basis * n_basis
-eri = zeros(n4)
-def eri_idx(mu, nu, lam, sig) {
-    return mu * n_basis * n_basis * n_basis + nu * n_basis * n_basis + lam * n_basis + sig
-}
+eri = zeros(n_basis, n_basis, n_basis, n_basis)
 for mu to n_basis {
     for nu to n_basis {
         for lam to n_basis {
             for sig to n_basis {
-                eri[eri_idx(mu, nu, lam, sig)] = contracted_eri(mu, nu, lam, sig)
+                eri[mu, nu, lam, sig] = contracted_eri(mu, nu, lam, sig)
             }
         }
     }
@@ -308,8 +302,8 @@ for iter to max_iter {
             g = 0.0
             for lam to n_basis {
                 for sig to n_basis {
-                    j_int = eri[eri_idx(mu, nu, lam, sig)]
-                    k_int = eri[eri_idx(mu, lam, nu, sig)]
+                    j_int = eri[mu, nu, lam, sig]
+                    k_int = eri[mu, lam, nu, sig]
                     g += P[lam, sig] * (j_int - 0.5 * k_int)
                 }
             }

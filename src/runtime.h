@@ -225,6 +225,62 @@ static inline void knot_print_newline(void) { putchar('\n'); }
 // would set this to 0 at startup.
 static int knot_narration_on = 1;
 
+// ---- N-D tensor (row-major) ---------------------------------------------
+// Storage for arbitrary-rank tensors. Two-electron integrals (mu nu | lam
+// sig) and any higher-rank intermediates (post-HF amplitudes, etc.) live
+// here. Indexing is row-major: idx = i_0 * d_1 * d_2 * ... + i_1 * d_2 *
+// ... + ... + i_{rank-1}. The dims array lives alongside the data.
+
+typedef struct {
+    double* data;
+    int* dims;       // length `rank`
+    int rank;
+    int size;        // product of dims (cached)
+} knot_tensor;
+
+static inline knot_tensor knot_tensor_new(int rank, const int* dims) {
+    knot_tensor t;
+    t.rank = rank;
+    t.dims = (int*)malloc((size_t)rank * sizeof(int));
+    int sz = 1;
+    for (int i = 0; i < rank; ++i) { t.dims[i] = dims[i]; sz *= dims[i]; }
+    t.size = sz;
+    t.data = (double*)calloc((size_t)sz, sizeof(double));
+    return t;
+}
+
+static inline int knot_tensor_flat(knot_tensor t, const int* idx) {
+    int f = 0;
+    for (int i = 0; i < t.rank; ++i) {
+        int ix = idx[i];
+        if (ix < 0) ix += t.dims[i];
+        if (ix < 0 || ix >= t.dims[i]) {
+            fprintf(stderr, "tensor index %d out of range on axis %d (dim %d)\n",
+                    idx[i], i, t.dims[i]);
+            exit(1);
+        }
+        f = f * t.dims[i] + ix;
+    }
+    return f;
+}
+
+static inline double knot_tensor_get(knot_tensor t, const int* idx) {
+    return t.data[knot_tensor_flat(t, idx)];
+}
+
+static inline void knot_tensor_set(knot_tensor t, const int* idx, double v) {
+    t.data[knot_tensor_flat(t, idx)] = v;
+}
+
+static inline int knot_tensor_rank(knot_tensor t) { return t.rank; }
+static inline int knot_tensor_dim(knot_tensor t, int axis) {
+    if (axis < 0 || axis >= t.rank) {
+        fprintf(stderr, "tensor dim: axis %d out of range\n", axis);
+        exit(1);
+    }
+    return t.dims[axis];
+}
+
 // ---- Closures -----------------------------------------------------------
 // Numerical callbacks (the arg to simpson, bisect, rk4, etc.) are passed
 // as fat pointers: a function pointer plus a void* env. Bare top-level

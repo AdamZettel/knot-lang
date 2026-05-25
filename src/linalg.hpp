@@ -54,6 +54,49 @@ struct Mat {
     double at(size_t i, size_t j) const { return data[i + j * rows]; }
 };
 
+// Row-major N-D tensor of doubles, for rank > 2 (two-electron integrals
+// and any higher-rank intermediate). Each axis can carry its own shape
+// tag; the axis_tags vector has length `rank`. Currently we don't enforce
+// tag matching on indexing (knot's tag system is most useful at the
+// row/col axis level); the tag slot is there so a future generalization
+// of `take` / shape-tag checks can pick it up.
+struct Tensor {
+    std::vector<int> dims;     // length = rank
+    std::vector<double> data;  // row-major
+    std::vector<std::shared_ptr<ShapeTag>> axis_tags;
+
+    Tensor() = default;
+    explicit Tensor(std::vector<int> d, double fill = 0.0)
+        : dims(std::move(d)),
+          data(product_of(dims), fill),
+          axis_tags(dims.size())
+    {}
+
+    int rank() const { return (int)dims.size(); }
+    size_t size() const { return data.size(); }
+
+    size_t flat_index(const std::vector<int>& idx) const {
+        size_t f = 0;
+        for (size_t a = 0; a < dims.size(); ++a) {
+            int ix = idx[a];
+            if (ix < 0) ix += dims[a];
+            if (ix < 0 || ix >= dims[a])
+                throw std::runtime_error("tensor index out of range");
+            f = f * (size_t)dims[a] + (size_t)ix;
+        }
+        return f;
+    }
+    double& at(const std::vector<int>& idx) { return data[flat_index(idx)]; }
+    double at(const std::vector<int>& idx) const { return data[flat_index(idx)]; }
+
+private:
+    static size_t product_of(const std::vector<int>& d) {
+        size_t p = 1;
+        for (int v : d) p *= (size_t)v;
+        return p;
+    }
+};
+
 // ---- Vec ops -----------------------------------------------------------
 
 inline Vec vec_add(const Vec& a, const Vec& b) {

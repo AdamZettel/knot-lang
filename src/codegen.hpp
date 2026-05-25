@@ -40,11 +40,14 @@
 
 namespace knot {
 
+// Forward: the closure types are emitted in codegen but the enum lists
+// them just below.
 enum class CType {
     Num,        // double
     Bool,       // int (0/1)
     Vec,        // knot_vec
     Mat,        // knot_mat
+    Tensor,     // knot_tensor (rank > 2 numerical container)
     Str,        // const char* (literals only; no concat in v1)
     Nil,        // void return / placeholder
     FnD_D,      // knot_clos_d_d        — bisect/newton/simpson/trapezoid/golden_section, closure-capable
@@ -59,6 +62,7 @@ inline const char* ctype_name(CType t) {
         case CType::Bool:  return "int";
         case CType::Vec:   return "knot_vec";
         case CType::Mat:   return "knot_mat";
+        case CType::Tensor:return "knot_tensor";
         case CType::Str:   return "const char*";
         case CType::Nil:   return "void";
         case CType::FnD_D:   return "knot_clos_d_d";
@@ -626,7 +630,30 @@ private:
                 return {"knot_vec_new((int)(" + args[0].code + "))", CType::Vec};
             if (args.size() == 2 && args[0].type == CType::Num && args[1].type == CType::Num)
                 return {"knot_mat_new((int)(" + args[0].code + "), (int)(" + args[1].code + "))", CType::Mat};
+            if (args.size() >= 3) {
+                // N-D tensor. Build with knot_tensor_new(rank, (int[]){...}).
+                std::string code = "knot_tensor_new("
+                    + std::to_string(args.size()) + ", (int[]){";
+                for (size_t i = 0; i < args.size(); ++i) {
+                    if (args[i].type != CType::Num)
+                        fail(e.span, "zeros: tensor dim must be num");
+                    if (i) code += ", ";
+                    code += "(int)(" + args[i].code + ")";
+                }
+                code += "})";
+                return {code, CType::Tensor};
+            }
             fail(e.span, "zeros: bad args");
+        }
+        if (name == "rank") {
+            if (args.size() != 1 || args[0].type != CType::Tensor)
+                fail(e.span, "rank(tensor)");
+            return {"((double)knot_tensor_rank(" + args[0].code + "))", CType::Num};
+        }
+        if (name == "dim") {
+            if (args.size() != 2 || args[0].type != CType::Tensor || args[1].type != CType::Num)
+                fail(e.span, "dim(tensor, axis)");
+            return {"((double)knot_tensor_dim(" + args[0].code + ", (int)(" + args[1].code + ")))", CType::Num};
         }
         if (name == "ones") {
             if (args.size() == 1 && args[0].type == CType::Num) {
@@ -743,6 +770,17 @@ private:
             return {"knot_mat_get(" + c.code + ", (int)(" + i.code
                     + "), (int)(" + j.code + "))", CType::Num};
         }
+        if (c.type == CType::Tensor) {
+            // knot_tensor_get(t, (int[]){i0, i1, ...})
+            std::string code = "knot_tensor_get(" + c.code + ", (int[]){";
+            for (size_t a = 0; a < e.elems.size(); ++a) {
+                if (a) code += ", ";
+                ExprResult ix = emit_expr(*e.elems[a], scope);
+                code += "(int)(" + ix.code + ")";
+            }
+            code += "})";
+            return {code, CType::Num};
+        }
         fail(e.span, std::string("cannot index ") + ctype_name(c.type));
     }
 
@@ -784,6 +822,16 @@ private:
                         body << "knot_mat_set(" << c.code << ", (int)("
                              << ix.code << "), (int)(" << jx.code
                              << "), " << val.code << ");\n";
+                    } else if (c.type == CType::Tensor) {
+                        std::string idxs = "(int[]){";
+                        for (size_t a = 0; a < s.target->elems.size(); ++a) {
+                            if (a) idxs += ", ";
+                            ExprResult ix = emit_expr(*s.target->elems[a], scope);
+                            idxs += "(int)(" + ix.code + ")";
+                        }
+                        idxs += "}";
+                        body << "knot_tensor_set(" << c.code << ", "
+                             << idxs << ", " << val.code << ");\n";
                     } else {
                         fail(s.span, "indexed assign: bad container type");
                     }
@@ -1185,6 +1233,7 @@ private:
                 if (fn == "zeros" || fn == "ones") {
                     if (e.elems.size() == 1) return CType::Vec;
                     if (e.elems.size() == 2) return CType::Mat;
+                    if (e.elems.size() >= 3) return CType::Tensor;
                 }
                 if (fn == "eye") return CType::Mat;
                 if (fn == "linspace" || fn == "arange" || fn == "fill")
@@ -1348,6 +1397,7 @@ private:
             case CType::Num:     return 1;
             case CType::Vec:     return 2;
             case CType::Mat:     return 2;
+            case CType::Tensor:  return 2;
             case CType::FnD_D:   return 2;
             case CType::FnDD_D:  return 2;
             case CType::FnDDD_D: return 2;
@@ -1545,6 +1595,7 @@ private:
                 if (e.callee && e.callee->kind == ExprKind::Ident && e.callee->str == name) {
                     if (e.elems.size() == 1) return CType::Vec;
                     if (e.elems.size() == 2) return CType::Mat;
+                    if (e.elems.size() >= 3) return CType::Tensor;
                 }
                 if (e.callee) t = ctype_max(t, scan_expr_for_type(name, *e.callee));
                 for (const auto& a : e.elems) t = ctype_max(t, scan_expr_for_type(name, *a));
